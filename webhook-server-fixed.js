@@ -317,9 +317,47 @@ app.post('/webhooks/orders/paid', async (req, res) => {
     
     await updateCustomerMetafield(customerId, 'loyalty', 'completed_tasks', completedTasks, 'json');
     
-    const currentPoints = await getCustomerPoints(customerId);
-    const newPoints = currentPoints + task.points;
-    await updateCustomerMetafield(customerId, 'loyalty', 'points', newPoints, 'number_integer');
+    // Lấy points_batches hiện tại
+    const batchesField = await getCustomerMetafield(customerId, 'loyalty', 'points_batches');
+    const batches = batchesField ? JSON.parse(batchesField.value) : [];
+
+    // Tạo gói điểm mới (hết hạn sau 60 ngày)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 60);
+
+    batches.push({
+      points: task.points,
+      earnedAt: new Date().toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      source: 'order'
+    });
+
+    // Lưu points_batches
+    await updateCustomerMetafield(customerId, 'loyalty', 'points_batches', batches, 'json');
+
+    // Tính tổng điểm từ các gói
+    const totalPoints = batches.reduce((sum, batch) => sum + batch.points, 0);
+
+    // Cập nhật loyalty.points
+    await updateCustomerMetafield(customerId, 'loyalty', 'points', totalPoints, 'number_integer');
+
+    // Lưu lịch sử
+    const historyField = await getCustomerMetafield(customerId, 'loyalty', 'points_history');
+    const history = historyField ? JSON.parse(historyField.value) : [];
+
+    history.unshift({
+      type: 'earn',
+      points: task.points,
+      taskId: task.id,
+      taskName: task.name,
+      timestamp: new Date().toISOString()
+    });
+
+    if (history.length > 50) {
+      history.pop();
+    }
+
+    await updateCustomerMetafield(customerId, 'loyalty', 'points_history', history, 'json');
     
     console.log(`✅ Cộng ${task.points} điểm cho customer ${customerId}`);
     
@@ -329,6 +367,7 @@ app.post('/webhooks/orders/paid', async (req, res) => {
     res.status(500).send('Error');
   }
 });
+
 
 // ========== START SERVER ==========
 const PORT = 3000;
