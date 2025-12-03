@@ -533,4 +533,95 @@ async function testAll() {
 
 //testAll();
 
-module.exports = API;
+// ===== TRACKING API CHO 5 NHIỆM VỤ =====
+async function trackLoyaltyTask(req, res) {
+  const { email, task, ...metadata } = req.body;
+  
+  // Validate
+  if (!email || !task) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Email và task là bắt buộc' 
+    });
+  }
+  
+  try {
+    // 1. Tìm customer ID từ email
+    const customersData = await shopifyAPI(`/customers/search.json?query=email:${email}`);
+    const customer = customersData.customers?.[0];
+    
+    if (!customer) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Không tìm thấy customer với email này' 
+      });
+    }
+    
+    const customerId = customer.id;
+    
+    // 2. Map task name sang function tương ứng
+    let result;
+    
+    switch(task) {
+      case 'login':
+        result = await API.login(customerId);
+        break;
+        
+      case 'browse':
+        const minutes = metadata.duration ? metadata.duration / 60 : 2;
+        result = await API.trackBrowseTime(customerId, minutes);
+        break;
+        
+      case 'read':
+        const pages = metadata.pagesCount || 10;
+        result = await API.trackReadPages(customerId, pages);
+        break;
+        
+      case 'collect':
+        const bookCount = metadata.products?.length || 2;
+        result = await API.trackCollectBooks(customerId, bookCount);
+        break;
+        
+      case 'game':
+        const score = metadata.score || 100;
+        result = await API.playGame(customerId, score);
+        break;
+        
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Task không hợp lệ. Chỉ chấp nhận: login, browse, read, collect, game'
+        });
+    }
+    
+    // 3. Trả về kết quả
+    if (result.success) {
+      res.json({
+        success: true,
+        task: task,
+        points: result.earnedPoints,
+        totalPoints: result.points,
+        message: result.message,
+        expiresIn: result.expiresIn
+      });
+    } else {
+      res.json(result);
+    }
+    
+  } catch (error) {
+    console.error('Track loyalty error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Lỗi server: ' + error.message 
+    });
+  }
+}
+
+// Export thêm function mới
+API.trackLoyaltyTask = trackLoyaltyTask;
+
+module.exports = { 
+  ...API, 
+  trackLoyaltyTask 
+};
+
