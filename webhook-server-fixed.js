@@ -210,7 +210,7 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
 // Đổi voucher
 app.post('/api/redeem-voucher', async (req, res) => {
   try {
-    const { customerId, points: pointsToRedeem } = req.body;
+    const { customerId, points: pointsToRedeem, voucherValue } = req.body;
     
     const currentPoints = await getCustomerPoints(customerId);
     
@@ -221,9 +221,11 @@ app.post('/api/redeem-voucher', async (req, res) => {
       });
     }
     
-    const discountAmount = Math.floor((pointsToRedeem / 100) * 10000);
-    const voucherCode = `BOOK${Date.now()}`;
+    // Tính giá trị voucher (nếu không truyền vào thì tự tính)
+    const discountAmount = voucherValue || Math.floor((pointsToRedeem / 100) * 10000);
+    const voucherCode = `OCEAN${Date.now()}`;
     
+    // Tạo price rule
     const priceRuleData = await shopifyAPI('/price_rules.json', 'POST', {
       price_rule: {
         title: `Voucher ${discountAmount.toLocaleString('vi-VN')}₫ - ${pointsToRedeem} điểm`,
@@ -239,14 +241,36 @@ app.post('/api/redeem-voucher', async (req, res) => {
       }
     });
     
+    // Tạo discount code
     await shopifyAPI(
       `/price_rules/${priceRuleData.price_rule.id}/discount_codes.json`,
       'POST',
       { discount_code: { code: voucherCode } }
     );
     
+    // Trừ điểm
     const newPoints = currentPoints - pointsToRedeem;
     await updateCustomerMetafield(customerId, 'loyalty', 'points', newPoints, 'number_integer');
+    
+    // ========== LƯU LỊCH SỬ ==========
+    const historyField = await getCustomerMetafield(customerId, 'loyalty', 'points_history');
+    const history = historyField ? JSON.parse(historyField.value) : [];
+    
+    history.unshift({
+      type: 'redeem',
+      points: -pointsToRedeem,
+      voucherCode: voucherCode,
+      voucherValue: discountAmount,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Giữ tối đa 50 giao dịch
+    if (history.length > 50) {
+      history.pop();
+    }
+    
+    await updateCustomerMetafield(customerId, 'loyalty', 'points_history', history, 'json');
+    // ================================
     
     res.json({
       success: true,
@@ -257,9 +281,10 @@ app.post('/api/redeem-voucher', async (req, res) => {
     });
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
+
 
 // Webhook - Order paid
 app.post('/webhooks/orders/paid', async (req, res) => {
