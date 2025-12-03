@@ -1,0 +1,18 @@
+{
+  "name": "loyalty-system",
+  "version": "1.0.0",
+  "description": "Hệ thống tích điểm cho cửa hàng sách",
+  "main": "webhook-server-fixed.js",
+  "scripts": {
+    "start": "node webhook-server-fixed.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^5.1.0",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
