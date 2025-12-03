@@ -1,6 +1,8 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
+const { trackLoyaltyTask } = require('./loyaltytasks');
+
 
 const app = express();
 
@@ -206,6 +208,9 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ========== TRACKING CHO 5 NHIỆM VỤ ==========
+app.post('/api/loyalty/track', trackLoyaltyTask);
 
 // Đổi voucher
 app.post('/api/redeem-voucher', async (req, res) => {
