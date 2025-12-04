@@ -14,19 +14,25 @@ const POINTS_EXPIRY_DAYS = 60;
 const pointsCache = new Map();
 const batchesCache = new Map();
 
-// Queue
-const taskQueues = new Map();
+// ===== THÊM MUTEX LOCK ĐỂ TRÁNH RACE CONDITION =====
+const taskLocks = new Map();
 
-async function enqueue(customerId, fn) {
-  if (!taskQueues.has(customerId)) {
-    taskQueues.set(customerId, Promise.resolve());
+async function acquireLock(customerId) {
+  if (!taskLocks.has(customerId)) {
+    taskLocks.set(customerId, Promise.resolve());
   }
   
-  const queue = taskQueues.get(customerId);
-  const newQueue = queue.then(fn).catch(fn);
-  taskQueues.set(customerId, newQueue);
+  const currentLock = taskLocks.get(customerId);
+  let releaseLock;
   
-  return newQueue;
+  const newLock = new Promise(resolve => {
+    releaseLock = resolve;
+  });
+  
+  taskLocks.set(customerId, currentLock.then(() => newLock));
+  
+  await currentLock;
+  return releaseLock;
 }
 
 // Định nghĩa các nhiệm vụ
@@ -201,7 +207,6 @@ async function getCompletedTasks(customerId) {
   return tasks;
 }
 
-
 // Thêm vào lịch sử
 async function addPointsHistory(customerId, entry) {
   const historyField = await getCustomerMetafield(customerId, 'loyalty', 'points_history');
@@ -299,17 +304,22 @@ async function deductPoints(customerId, pointsToDeduct) {
   return totalPoints;
 }
 
-// Hoàn thành nhiệm vụ
+// ===== HOÀN THÀNH NHIỆM VỤ - ĐÃ FIX RACE CONDITION =====
 async function completeTask(customerId, taskId, metadata = {}) {
-  return enqueue(customerId, async () => {
+  // ✅ LOCK để tránh race condition
+  const releaseLock = await acquireLock(customerId);
+  
+  try {
     const task = Object.values(TASKS).find(t => t.id === taskId);
     if (!task) {
       return { success: false, message: 'Nhiệm vụ không tồn tại' };
     }
-    
+
+    // ✅ ĐỌC 1 LẦN DUY NHẤT
     const completedTasks = await getCompletedTasks(customerId);
     const today = new Date().toISOString().split('T')[0];
     
+    // Kiểm tra duplicate
     if (task.type === 'daily') {
       if (completedTasks[taskId]?.lastCompleted === today) {
         return {
@@ -319,26 +329,24 @@ async function completeTask(customerId, taskId, metadata = {}) {
       }
     }
     
-    // ĐỌC LẠI ĐỂ TRÁNH GHI ĐÈ
-const latestTasks = await getCompletedTasks(customerId);
+    // ✅ CẬP NHẬT trực tiếp trên object vừa đọc
+    completedTasks[taskId] = {
+      completedAt: new Date().toISOString(),
+      lastCompleted: today,
+      count: (completedTasks[taskId]?.count || 0) + 1,
+      metadata
+    };
 
-latestTasks[taskId] = {
-  completedAt: new Date().toISOString(),
-  lastCompleted: today,
-  count: (latestTasks[taskId]?.count || 0) + 1,
-  metadata
-};
+    console.log(`[DEBUG] Saving ${Object.keys(completedTasks).length} tasks for customer ${customerId}:`, Object.keys(completedTasks).join(', '));
 
-console.log(`[DEBUG] Saving completed_tasks:`, JSON.stringify(latestTasks));
-
-await updateCustomerMetafield(
-  customerId,
-  'loyalty',
-  'completed_tasks',
-  latestTasks,
-  'json'
-);
-
+    // ✅ LƯU lại toàn bộ object
+    await updateCustomerMetafield(
+      customerId,
+      'loyalty',
+      'completed_tasks',
+      completedTasks,
+      'json'
+    );
     
     // Thêm điểm mới (tạo gói điểm mới)
     const newTotalPoints = await addPoints(customerId, task.points, `task_${taskId}`);
@@ -360,12 +368,18 @@ await updateCustomerMetafield(
       task: task.name,
       expiresIn: `${POINTS_EXPIRY_DAYS} ngày`
     };
-  });
+    
+  } finally {
+    // ✅ UNLOCK sau khi xong
+    releaseLock();
+  }
 }
 
 // Tạo voucher từ điểm
 async function redeemVoucher(customerId, pointsToRedeem) {
-  return enqueue(customerId, async () => {
+  const releaseLock = await acquireLock(customerId);
+  
+  try {
     const currentPoints = await getCustomerPoints(customerId);
     
     if (currentPoints < pointsToRedeem) {
@@ -426,7 +440,10 @@ async function redeemVoucher(customerId, pointsToRedeem) {
       remainingPoints: newPoints,
       message: `Đã tạo voucher ${voucherCode} giảm ${discountAmount.toLocaleString('vi-VN')}₫`
     };
-  });
+    
+  } finally {
+    releaseLock();
+  }
 }
 
 // API cho frontend sử dụng
@@ -541,7 +558,38 @@ async function testAll() {
   });
 }
 
-//testAll();
+// ===== TEST RACE CONDITION =====
+async function testRaceCondition() {
+  console.log('🧪 TEST RACE CONDITION - Gọi 3 tasks ĐỒNG THỜI\n');
+  
+  API.clearCache(testCustomerId);
+  
+  const results = await Promise.all([
+    API.login(testCustomerId),
+    API.trackBrowseTime(testCustomerId, 2),
+    API.trackReadPages(testCustomerId, 10)
+  ]);
+  
+  console.log('✅ Kết quả:');
+  results.forEach((r, i) => {
+    console.log(`  ${i+1}. ${r.message}`);
+  });
+  
+  console.log('\n📊 Kiểm tra metafield...');
+  const progress = await API.getProgress(testCustomerId);
+  console.log(`Số tasks đã lưu: ${Object.keys(progress.completedTasks).length}`);
+  console.log(`Tasks: ${Object.keys(progress.completedTasks).join(', ')}`);
+  
+  if (Object.keys(progress.completedTasks).length === 3) {
+    console.log('\n✅ PASS - Đã lưu đủ 3 tasks!');
+  } else {
+    console.log('\n❌ FAIL - Bị mất tasks!');
+  }
+}
+
+// Uncomment để test
+// testAll();
+// testRaceCondition();
 
 // ===== TRACKING API CHO 5 NHIỆM VỤ =====
 async function trackLoyaltyTask(req, res) {
@@ -627,11 +675,8 @@ async function trackLoyaltyTask(req, res) {
   }
 }
 
-// Export thêm function mới
-API.trackLoyaltyTask = trackLoyaltyTask;
-
+// Export
 module.exports = { 
   ...API, 
   trackLoyaltyTask 
 };
-
