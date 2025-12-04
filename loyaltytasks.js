@@ -319,20 +319,26 @@ async function completeTask(customerId, taskId, metadata = {}) {
       }
     }
     
-    completedTasks[taskId] = {
-      completedAt: new Date().toISOString(),
-      lastCompleted: today,
-      count: (completedTasks[taskId]?.count || 0) + 1,
-      metadata
-    };
-    
-    await updateCustomerMetafield(
-      customerId,
-      'loyalty',
-      'completed_tasks',
-      completedTasks,
-      'json'
-    );
+    // ĐỌC LẠI ĐỂ TRÁNH GHI ĐÈ
+const latestTasks = await getCompletedTasks(customerId);
+
+latestTasks[taskId] = {
+  completedAt: new Date().toISOString(),
+  lastCompleted: today,
+  count: (latestTasks[taskId]?.count || 0) + 1,
+  metadata
+};
+
+console.log(`[DEBUG] Saving completed_tasks:`, JSON.stringify(latestTasks));
+
+await updateCustomerMetafield(
+  customerId,
+  'loyalty',
+  'completed_tasks',
+  latestTasks,
+  'json'
+);
+
     
     // Thêm điểm mới (tạo gói điểm mới)
     const newTotalPoints = await addPoints(customerId, task.points, `task_${taskId}`);
