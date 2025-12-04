@@ -19,8 +19,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
-// Thêm preflight handler
-app.options('*', cors());
+
 
 // ... phần còn lại giữ nguyên
 
