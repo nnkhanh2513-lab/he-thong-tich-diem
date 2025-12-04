@@ -194,9 +194,13 @@ async function getCustomerPoints(customerId) {
 
 // Lấy danh sách nhiệm vụ đã hoàn thành
 async function getCompletedTasks(customerId) {
+  // LUÔN ĐỌC MỚI TỪ SHOPIFY - KHÔNG DÙNG CACHE
   const metafield = await getCustomerMetafield(customerId, 'loyalty', 'completed_tasks');
-  return metafield ? JSON.parse(metafield.value) : {};
+  const tasks = metafield ? JSON.parse(metafield.value) : {};
+  console.log(`[DEBUG] getCompletedTasks for ${customerId}:`, JSON.stringify(tasks));
+  return tasks;
 }
+
 
 // Thêm vào lịch sử
 async function addPointsHistory(customerId, entry) {
