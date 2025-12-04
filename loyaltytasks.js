@@ -202,10 +202,20 @@ async function getCustomerPoints(customerId) {
 async function getCompletedTasks(customerId) {
   // LUÔN ĐỌC MỚI TỪ SHOPIFY - KHÔNG DÙNG CACHE
   const metafield = await getCustomerMetafield(customerId, 'loyalty', 'completed_tasks');
-  const tasks = metafield ? JSON.parse(metafield.value) : {};
+  let tasks = metafield ? JSON.parse(metafield.value) : {};
+  
+  // ✅ VALIDATION: Nếu là array thì convert sang object
+  if (Array.isArray(tasks)) {
+    console.log(`⚠️ WARNING: completed_tasks is array for customer ${customerId}, converting to object`);
+    tasks = {};
+    // Tự động fix luôn
+    await updateCustomerMetafield(customerId, 'loyalty', 'completed_tasks', tasks, 'json');
+  }
+  
   console.log(`[DEBUG] getCompletedTasks for ${customerId}:`, JSON.stringify(tasks));
   return tasks;
 }
+
 
 // Thêm vào lịch sử
 async function addPointsHistory(customerId, entry) {
