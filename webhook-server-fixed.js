@@ -184,7 +184,8 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
     }
     
     const completedTasks = await getCompletedTasks(customerId);
-    const today = new Date().toISOString().split('T')[0];
+// Dùng múi giờ Việt Nam (UTC+7)
+const today = new Date(new Date().getTime() + 7*60*60*1000).toISOString().split('T')[0];
     
     if (task.type === 'daily' && completedTasks[taskId]?.lastCompleted === today) {
       return res.json({
