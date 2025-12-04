@@ -8,12 +8,19 @@ const app = express();
 
 // CORS - CHO PHÉP TẤT CẢ DOMAIN
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: [
+    'https://ket-noi-tri-thuc.myshopify.com',
+    'https://kntt.vn',
+    'http://localhost:3000',
+    '*'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
-app.use(express.json());
+// Thêm preflight handler
+app.options('*', cors());
 
 // ... phần còn lại giữ nguyên
 
