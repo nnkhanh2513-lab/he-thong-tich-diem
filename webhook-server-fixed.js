@@ -384,6 +384,89 @@ app.post('/webhooks/orders/paid', async (req, res) => {
 });
 
 
+// Webhook - Order created (cho COD và tất cả đơn hàng)
+app.post('/webhooks/orders/create', async (req, res) => {
+  try {
+    const order = req.body;
+    const customerId = order.customer?.id;
+    
+    if (!customerId) {
+      return res.status(200).send('OK');
+    }
+    
+    console.log(`📦 Order created: ${order.id} - Customer: ${customerId}`);
+    
+    // Cộng điểm cho nhiệm vụ chốt đơn
+    const task = TASKS.COMPLETE_ORDER;
+    const completedTasks = await getCompletedTasks(customerId);
+    const today = new Date(new Date().getTime() + 7*60*60*1000).toISOString().split('T')[0];
+    
+    if (completedTasks[task.id]?.lastCompleted === today) {
+      console.log('✅ Đã cộng điểm cho đơn hàng hôm nay rồi');
+      return res.status(200).send('OK');
+    }
+    
+    completedTasks[task.id] = {
+      completedAt: new Date().toISOString(),
+      lastCompleted: today,
+      count: (completedTasks[task.id]?.count || 0) + 1,
+      metadata: { orderId: order.id }
+    };
+    
+    await updateCustomerMetafield(customerId, 'loyalty', 'completed_tasks', completedTasks, 'json');
+    
+    // Lấy points_batches hiện tại
+    const batchesField = await getCustomerMetafield(customerId, 'loyalty', 'points_batches');
+    const batches = batchesField ? JSON.parse(batchesField.value) : [];
+
+    // Tạo gói điểm mới (hết hạn sau 60 ngày)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 60);
+
+    batches.push({
+      points: task.points,
+      earnedAt: new Date().toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      source: 'order'
+    });
+
+    // Lưu points_batches
+    await updateCustomerMetafield(customerId, 'loyalty', 'points_batches', batches, 'json');
+
+    // Tính tổng điểm từ các gói
+    const totalPoints = batches.reduce((sum, batch) => sum + batch.points, 0);
+
+    // Cập nhật loyalty.points
+    await updateCustomerMetafield(customerId, 'loyalty', 'points', totalPoints, 'number_integer');
+
+    // Lưu lịch sử
+    const historyField = await getCustomerMetafield(customerId, 'loyalty', 'points_history');
+    const history = historyField ? JSON.parse(historyField.value) : [];
+
+    history.unshift({
+      type: 'earn',
+      points: task.points,
+      taskId: task.id,
+      taskName: task.name,
+      timestamp: new Date().toISOString()
+    });
+
+    if (history.length > 50) {
+      history.pop();
+    }
+
+    await updateCustomerMetafield(customerId, 'loyalty', 'points_history', history, 'json');
+    
+    console.log(`✅ Cộng ${task.points} điểm cho customer ${customerId}`);
+    
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.status(500).send('Error');
+  }
+});
+
+
 // ========== START SERVER ==========
 const PORT = 3000;
 app.listen(PORT, () => {
