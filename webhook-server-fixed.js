@@ -316,7 +316,7 @@ app.post('/webhooks/orders/paid', async (req, res) => {
     // Cộng điểm cho nhiệm vụ chốt đơn
     const task = TASKS.COMPLETE_ORDER;
     const completedTasks = await getCompletedTasks(customerId);
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(new Date().getTime() + 7*60*60*1000).toISOString().split('T')[0];
     
     if (completedTasks[task.id]?.lastCompleted === today) {
       console.log('✅ Đã cộng điểm cho đơn hàng hôm nay rồi');
