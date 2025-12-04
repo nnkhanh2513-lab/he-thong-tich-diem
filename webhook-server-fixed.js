@@ -19,6 +19,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
+// Parse JSON body
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 
 // ... phần còn lại giữ nguyên
