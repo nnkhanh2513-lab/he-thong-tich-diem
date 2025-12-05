@@ -603,50 +603,65 @@ async function testRaceCondition() {
 
 // ===== TRACKING API CHO 5 NHIỆM VỤ =====
 async function trackLoyaltyTask(req, res) {
-  const { email, task, ...metadata } = req.body;
+  const { shop, customer_id, customer_email, task_type, metadata = {} } = req.body;
+  
+  console.log('📊 Tracking request:', { shop, customer_id, customer_email, task_type, metadata });
   
   // Validate
-  if (!email || !task) {
+  if (!customer_id && !customer_email) {
     return res.status(400).json({ 
       success: false, 
-      message: 'Email và task là bắt buộc' 
+      message: 'customer_id hoặc customer_email là bắt buộc' 
+    });
+  }
+  
+  if (!task_type) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'task_type là bắt buộc' 
     });
   }
   
   try {
-    // 1. Tìm customer ID từ email
-    const customersData = await shopifyAPI(`/customers/search.json?query=email:${email}`);
-    const customer = customersData.customers?.[0];
+    let customerId = customer_id;
     
-    if (!customer) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Không tìm thấy customer với email này' 
-      });
+    // Nếu không có customer_id, tìm từ email
+    if (!customerId && customer_email) {
+      const customersData = await shopifyAPI(`/customers/search.json?query=email:${customer_email}`);
+      const customer = customersData.customers?.[0];
+      
+      if (!customer) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Không tìm thấy customer với email này' 
+        });
+      }
+      
+      customerId = customer.id;
     }
     
-    const customerId = customer.id;
+    console.log(`✅ Customer ID: ${customerId}`);
     
-    // 2. Map task name sang function tương ứng
+    // Map task_type sang function tương ứng
     let result;
     
-    switch(task) {
+    switch(task_type) {
       case 'login':
         result = await API.login(customerId);
         break;
         
       case 'browse':
-        const minutes = metadata.duration ? metadata.duration / 60 : 2;
+        const minutes = metadata.minutes || 2;
         result = await API.trackBrowseTime(customerId, minutes);
         break;
         
       case 'read':
-        const pages = metadata.pagesCount || 10;
+        const pages = metadata.pages || 10;
         result = await API.trackReadPages(customerId, pages);
         break;
         
       case 'collect':
-        const bookCount = metadata.products?.length || 2;
+        const bookCount = metadata.bookCount || 2;
         result = await API.trackCollectBooks(customerId, bookCount);
         break;
         
@@ -662,28 +677,35 @@ async function trackLoyaltyTask(req, res) {
         });
     }
     
-    // 3. Trả về kết quả
+    console.log('📤 Result:', result);
+    
+    // Trả về kết quả
     if (result.success) {
       res.json({
         success: true,
-        task: task,
-        points: result.earnedPoints,
-        totalPoints: result.points,
+        task: task_type,
+        points_earned: result.earnedPoints,
+        total_points: result.points,
         message: result.message,
         expiresIn: result.expiresIn
       });
     } else {
-      res.json(result);
+      res.json({
+        success: false,
+        message: result.message,
+        points_earned: 0
+      });
     }
     
   } catch (error) {
-    console.error('Track loyalty error:', error);
+    console.error('❌ Track loyalty error:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Lỗi server: ' + error.message 
     });
   }
 }
+
 
 // Export
 module.exports = { 
