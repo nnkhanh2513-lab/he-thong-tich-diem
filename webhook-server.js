@@ -5,6 +5,16 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 
+// ← THÊM CORS
+const cors = require('cors');
+app.use(cors({
+  origin: [
+    'https://ket-noi-tri-thuc.myshopify.com',
+    /\.myshopify\.com$/
+  ],
+  credentials: true
+}));
+
 const SHOPIFY_CONFIG = {
   domain: process.env.SHOPIFY_DOMAIN || 'ket-noi-tri-thuc.myshopify.com',
   token: process.env.SHOPIFY_TOKEN,
@@ -13,12 +23,13 @@ const SHOPIFY_CONFIG = {
 
 const TASKS = {
   login: { id: 'login', name: 'Đăng nhập', points: 10 },
-  browse_time: { id: 'browse_time', name: 'Duyệt web', points: 5 },
-  read_pages: { id: 'read_pages', name: 'Đọc bài', points: 10 },
+  browse_time: { id: 'browse_time', name: 'Duyệt web', points: 10 }, // ← Sửa 5 → 10
+  read_pages: { id: 'read_pages', name: 'Đọc bài', points: 30 }, // ← Sửa 10 → 30
   collect_books: { id: 'collect_books', name: 'Sưu tập', points: 20 },
   play_game: { id: 'play_game', name: 'Chơi game', points: 20 },
   complete_order: { id: 'complete_order', name: 'Hoàn tất đơn', points: 100 }
 };
+
 
 // ===== SHOPIFY GRAPHQL API =====
 async function shopifyGraphQL(query) {
@@ -81,7 +92,7 @@ async function updateMetafield(ownerId, namespace, key, value, type = 'json') {
         ownerId: "${ownerId}"
         namespace: "${namespace}"
         key: "${key}"
-        value: ${JSON.stringify(JSON.stringify(value))}
+        value: ${JSON.stringify(value)}
         type: "${type}"
       }]) {
         metafields {
@@ -107,7 +118,7 @@ async function createMetafield(customerId, key, value, type = 'json') {
         ownerId: "gid://shopify/Customer/${customerId}"
         namespace: "loyalty"
         key: "${key}"
-        value: ${JSON.stringify(JSON.stringify(value))}
+        value: ${JSON.stringify(value)}
         type: "${type}"
       }]) {
         metafields {
@@ -152,7 +163,7 @@ async function completeTask(customerId, taskId, metadata = {}) {
     }
     
     // Kiểm tra đã hoàn thành chưa
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split('T')[0];
     if (completedTasks[taskId] && completedTasks[taskId].lastCompleted === today) {
       console.log(`⚠️ Nhiệm vụ "${taskId}" đã hoàn thành hôm nay!`);
       return { success: false, message: 'Already completed today' };
@@ -201,6 +212,33 @@ async function completeTask(customerId, taskId, metadata = {}) {
       await createMetafield(customerId, 'points', totalPoints, 'number_integer');
     }
     
+    // Lưu lịch sử giao dịch
+    let history = [];
+    if (metafields.points_history) {
+      history = JSON.parse(metafields.points_history.value);
+    }
+    
+    history.unshift({
+      type: 'earn',
+      points: points,
+      taskId: taskId,
+      taskName: TASKS[taskId]?.name,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Giữ tối đa 100 giao dịch
+    if (history.length > 100) {
+      history.length = 100;
+    }
+    
+    if (metafields.points_history) {
+      await updateMetafield(metafields.ownerId, 'loyalty', 'points_history', history, 'json');
+    } else {
+      await createMetafield(customerId, 'points_history', history);
+    }
+    
+    console.log(`✅ Hoàn thành "${TASKS[taskId]?.name}"! +${points} điểm`);
+
     console.log(`✅ Hoàn thành "${TASKS[taskId]?.name}"! +${points} điểm`);
     console.log(`📊 Tổng điểm: ${totalPoints}`);
     
@@ -285,6 +323,107 @@ app.get('/api/loyalty/:customerId', async (req, res) => {
   }
 });
 
+// ===== API: TRACKING CHO 5 NHIỆM VỤ =====
+app.post('/api/loyalty/track', async (req, res) => {
+  try {
+    const { shop, customer_id, customer_email, task_type, metadata = {} } = req.body;
+    
+    console.log('📊 Tracking request:', { shop, customer_id, customer_email, task_type });
+    
+    // Validate
+    if (!customer_id && !customer_email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'customer_id hoặc customer_email là bắt buộc' 
+      });
+    }
+    
+    if (!task_type) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'task_type là bắt buộc' 
+      });
+    }
+    
+    // Nếu có email, tìm customer ID
+    let customerId = customer_id;
+    
+    if (!customerId && customer_email) {
+      const searchQuery = `
+        query {
+          customers(first: 1, query: "email:${customer_email}") {
+            edges {
+              node {
+                id
+                email
+              }
+            }
+          }
+        }
+      `;
+      
+      const searchResult = await shopifyGraphQL(searchQuery);
+      const customer = searchResult.customers.edges[0]?.node;
+      
+      if (!customer) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Không tìm thấy customer với email này' 
+        });
+      }
+      
+      // Extract numeric ID from "gid://shopify/Customer/123456"
+      customerId = customer.id.split('/').pop();
+    }
+    
+    console.log(`✅ Customer ID: ${customerId}`);
+    
+    // Map task_type sang taskId
+    const taskMap = {
+      'login': 'login',
+      'browse': 'browse_time',
+      'read': 'read_pages',
+      'collect': 'collect_books',
+      'game': 'play_game'
+    };
+    
+    const taskId = taskMap[task_type];
+    
+    if (!taskId || !TASKS[taskId]) {
+      return res.status(400).json({
+        success: false,
+        message: 'Task không hợp lệ. Chỉ chấp nhận: login, browse, read, collect, game'
+      });
+    }
+    
+    // Hoàn thành task
+    const result = await completeTask(customerId, taskId, metadata);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        task: task_type,
+        points_earned: result.points,
+        total_points: result.totalPoints,
+        message: `Hoàn thành nhiệm vụ "${TASKS[taskId].name}"! +${result.points} điểm`
+      });
+    } else {
+      res.json({
+        success: false,
+        message: result.message,
+        points_earned: 0
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Track loyalty error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Lỗi server: ' + error.message 
+    });
+  }
+});
+
 // ===== API: ĐỔI VOUCHER =====
 app.post('/api/redeem-voucher', async (req, res) => {
   try {
@@ -323,30 +462,75 @@ app.post('/api/redeem-voucher', async (req, res) => {
       });
     }
     
-    // Trừ điểm theo FIFO
-    let remaining = pointsToRedeem;
-    const updatedBatches = [];
-    
-    for (const batch of pointsBatches) {
-      if (remaining <= 0 || new Date(batch.expiresAt) <= new Date()) {
-        updatedBatches.push(batch);
-        continue;
-      }
-      
-      if (batch.points <= remaining) {
-        remaining -= batch.points;
-      } else {
-        batch.points -= remaining;
-        remaining = 0;
-        updatedBatches.push(batch);
-      }
+   // ===== FIFO REDEEM – CHUẨN KHÔNG ĐÁNH MẤT DỮ LIỆU =====
+const now = new Date();
+let remaining = pointsToRedeem;
+const updatedBatches = [];
+
+// Tạo mapping batchId → số điểm cần trừ
+const consumeMap = new Map();
+
+// 1. Lọc batch hợp lệ & sort FIFO
+const fifoBatches = pointsBatches
+  .filter(b => new Date(b.expiresAt) > now)
+  .sort((a, b) => new Date(a.earnedAt) - new Date(b.earnedAt));
+
+// 2. Tính toán xem FIFO batch nào bị trừ bao nhiêu
+for (const batch of fifoBatches) {
+  if (remaining <= 0) break;
+
+  if (batch.points <= remaining) {
+    // consume toàn bộ batch này
+    consumeMap.set(batch, batch.points);
+    remaining -= batch.points;
+  } else {
+    // consume một phần
+    consumeMap.set(batch, remaining);
+    remaining = 0;
+  }
+}
+
+// 3. Kiểm tra thiếu điểm
+if (remaining > 0) {
+  return res.status(400).json({
+    error: 'Insufficient points',
+    available: totalAvailable,
+    requested: pointsToRedeem
+  });
+}
+
+// 4. Tạo updatedBatches (giữ expired, giữ nguyên thứ tự gốc)
+for (const batch of pointsBatches) {
+  const isExpired = new Date(batch.expiresAt) <= now;
+
+  if (isExpired) {
+    // giữ nguyên expired
+    updatedBatches.push({ ...batch });
+    continue;
+  }
+
+  // batch nằm trong FIFO → bị trừ
+  if (consumeMap.has(batch)) {
+    const used = consumeMap.get(batch);
+    const remain = batch.points - used;
+
+    if (remain > 0) {
+      updatedBatches.push({ ...batch, points: remain });
     }
+
+    // remain = 0 → không push (tức batch bị xóa)
+  } else {
+    // batch valid nhưng không bị trừ
+    updatedBatches.push({ ...batch });
+  }
+}
+
     
     console.log(`✂️ Đã trừ ${pointsToRedeem} điểm theo FIFO`);
     
     // Tạo discount code
     const discountCode = `LOYALTY${pointsToRedeem}_${Date.now().toString().slice(-6)}`;
-    const discountValue = pointsToRedeem * 1000; // 1 điểm = 1000 VND
+const discountValue = Math.floor((pointsToRedeem / 300) * 10000); // 300 điểm = 10,000 VND
     
     console.log(`🎫 Đang tạo discount code: ${discountCode}...`);
     
@@ -365,7 +549,7 @@ app.post('/api/redeem-voucher', async (req, res) => {
           customerGets: {
             value: {
               discountAmount: {
-                amount: ${discountValue}
+                amount: "${discountValue}"
                 appliesOnEachItem: false
               }
             }
@@ -448,6 +632,33 @@ app.post('/api/redeem-voucher', async (req, res) => {
       await updateMetafield(metafields.ownerId, 'loyalty', 'points', newTotal, 'number_integer');
     }
     
+    // Lưu lịch sử giao dịch
+    let history = [];
+    if (metafields.points_history) {
+      history = JSON.parse(metafields.points_history.value);
+    }
+    
+    history.unshift({
+      type: 'redeem',
+      points: -pointsToRedeem,
+      voucherCode: discountCode,
+      voucherValue: discountValue,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Giữ tối đa 100 giao dịch
+    if (history.length > 100) {
+      history.length = 100;
+    }
+    
+    if (metafields.points_history) {
+      await updateMetafield(metafields.ownerId, 'loyalty', 'points_history', history, 'json');
+    } else {
+      await createMetafield(customerId, 'points_history', history);
+    }
+    
+    console.log(`\n✅ ĐỔI VOUCHER THÀNH CÔNG!`);
+
     console.log(`\n✅ ĐỔI VOUCHER THÀNH CÔNG!`);
     console.log(`💳 Code: ${discountCode}`);
     console.log(`💰 Giá trị: ${discountValue} VND`);
