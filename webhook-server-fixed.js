@@ -6,13 +6,12 @@ const { trackLoyaltyTask } = require('./loyaltytasks');
 
 const app = express();
 
-// CORS - CHO PHÉP TẤT CẢ DOMAIN
+// CORS - CHO PHÉP CÁC DOMAIN CỤ THỂ
 app.use(cors({
   origin: [
     'https://ket-noi-tri-thuc.myshopify.com',
     'https://kntt.vn',
-    'http://localhost:3000',
-    '*'
+    'http://localhost:3000'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -22,6 +21,7 @@ app.use(cors({
 // Parse JSON body
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 
 
 // ... phần còn lại giữ nguyên
