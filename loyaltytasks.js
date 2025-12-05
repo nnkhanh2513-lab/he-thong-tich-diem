@@ -812,7 +812,12 @@ async function trackLoyaltyTask(req, res) {
   }
 }
 
-
+// ===== HELPER: Clear cache =====
+function clearCache(customerId) {
+  if (redis) {
+    redis.del(`points:${customerId}`);
+  }
+}
 // ===== EXPORTS =====
 module.exports = {
   // Core functions
@@ -824,7 +829,7 @@ module.exports = {
   
   // API wrapper
   API,
-  
+  clearCache,
   // Tracking endpoint
   trackLoyaltyTask,
   
