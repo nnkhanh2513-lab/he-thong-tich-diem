@@ -6,10 +6,9 @@ const {
   trackLoyaltyTask, 
   completeTask, 
   redeemVoucher,
-  getPointsBatches, 
-  cleanExpiredPoints, 
+  getCompletedTasks,
   clearCache,
-  getCompletedTasks
+  API
 } = require('./loyaltytasks');
 
 
