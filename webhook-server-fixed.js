@@ -18,11 +18,31 @@ const app = express();
 
 // CORS - CHO PHÉP CÁC DOMAIN CỤ THỂ
 app.use(cors({
-  origin: [
-    'https://ket-noi-tri-thuc.myshopify.com',
-    'https://kntt.vn',
-    'http://localhost:3000'
-  ],
+  origin: function (origin, callback) {
+    // Cho phép requests không có origin (Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    
+    // Whitelist cụ thể
+    const allowedOrigins = [
+      'https://ket-noi-tri-thuc.myshopify.com',
+      'https://kntt.vn',
+      'http://localhost:3000'
+    ];
+    
+    // ✅ CHO PHÉP TẤT CẢ SHOPIFY DOMAINS
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.includes('shopify.com') ||           // ← THÊM
+      origin.includes('myshopify.com') ||         // ← THÊM
+      origin.includes('shopifysvc.com') ||        // ← THÊM
+      origin.includes('shopifycdn.com')           // ← THÊM
+    ) {
+      return callback(null, true);
+    }
+    
+    console.warn('⚠️ CORS blocked:', origin);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
