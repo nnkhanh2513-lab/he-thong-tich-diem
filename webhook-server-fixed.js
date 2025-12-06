@@ -206,39 +206,33 @@ app.post('/api/notifications/send', async (req, res) => {
   }
 });
 
-// Webhook - Order paid (FIXED)
+// Webhook - Order paid
 app.post('/webhooks/orders/paid', async (req, res) => {
   try {
     const order = req.body;
     const rawCustomerId = order.customer?.id;
     
     if (!rawCustomerId) {
-      console.log('⚠️ Order from guest - skipping loyalty points');
+      console.log('⚠️ Order from guest - skipping');
       return res.status(200).send('OK');
     }
     
-    // ✅ CONVERT sang GID format nếu cần
-    const customerId = typeof rawCustomerId === 'number' || !rawCustomerId.startsWith('gid://')
-      ? `gid://shopify/Customer/${rawCustomerId}`
-      : rawCustomerId;
+    // ✅ Chỉ cần truyền ID gốc, hàm extractCustomerId sẽ xử lý
+    console.log(`📦 Order paid: ${order.id} - Customer: ${rawCustomerId}`);
     
-    console.log(`📦 Order paid: ${order.id} - Customer: ${customerId}`);
-    
-    const task = TASKS.COMPLETE_ORDER;
-    const result = await completeTask(customerId, task.id, { orderId: order.id });
-
-    clearCache(customerId);
+    const result = await completeTask(rawCustomerId, 'complete_order', { orderId: order.id });
+    clearCache(rawCustomerId);
     
     if (result.success) {
-      console.log(`✅ Cộng ${task.points} điểm cho customer ${customerId}`);
+      console.log(`✅ Cộng điểm thành công`);
     } else {
-      console.log(`ℹ️ Không cộng điểm: ${result.message}`);
+      console.log(`ℹ️ ${result.message}`);
     }
     
     res.status(200).send('OK');
   } catch (error) {
     console.error('❌ Webhook error:', error);
-    res.status(200).send('Error processed'); 
+    res.status(200).send('Error processed');
   }
 });
 
