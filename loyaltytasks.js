@@ -232,8 +232,16 @@ async function getCustomerMetafields(customerId) {
 // ===== METAFIELDS SET (batch mutation) =====
 async function metafieldsSetPayload(metafieldsArray) {
   const fields = metafieldsArray.map(m => {
-    // ✅ FIX: Escape JSON string properly
-    const valueStr = JSON.stringify(JSON.stringify(m.value));
+    // ✅ XỬ LÝ THEO TYPE
+    let valueStr;
+    
+    if (m.type === 'number_integer') {
+      // Number: không stringify
+      valueStr = m.value;
+    } else {
+      // JSON (object/array): double stringify
+      valueStr = JSON.stringify(JSON.stringify(m.value));
+    }
     
     return `{
       ownerId: "${m.ownerId}"
