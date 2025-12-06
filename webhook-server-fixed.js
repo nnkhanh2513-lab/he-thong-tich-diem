@@ -1,6 +1,8 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
+const { sendNotification, markAllRead, markAsRead } = require('./notifications');
+
 // Nhập các hàm cần thiết từ loyaltytasks
 const { 
   trackLoyaltyTask, 
@@ -125,6 +127,44 @@ app.post('/api/redeem-voucher', async (req, res) => {
   }
 });
 
+// ========== NOTIFICATION ENDPOINTS ==========
+
+// Đánh dấu tất cả đã đọc
+app.post('/api/notifications/mark-all-read', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    const result = await markAllRead(customerId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Đánh dấu 1 thông báo đã đọc
+app.post('/api/notifications/mark-read/:notificationId', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    const { notificationId } = req.params;
+    const result = await markAsRead(customerId, notificationId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Gửi thông báo thủ công (cho admin test)
+app.post('/api/notifications/send', async (req, res) => {
+  try {
+    const { customerId, type, title, message, link } = req.body;
+    const result = await sendNotification(customerId, { type, title, message, link });
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // Webhook - Order paid (Đã FIX)
 app.post('/webhooks/orders/paid', async (req, res) => {
