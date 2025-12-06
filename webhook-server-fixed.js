@@ -108,42 +108,69 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
 // ========== TRACKING CHO 5 NHIỆM VỤ (Login, Browse, Read, Collect, Game) ==========
 // TÁI SỬ DỤNG LOGIC TỪ loyaltytasks.js
 app.post('/api/loyalty/track', trackLoyaltyTask);
-// Thêm GET endpoint cho image beacon
+// GET endpoint cho image beacon - FINAL VERSION
 app.get('/api/loyalty/track', async (req, res) => {
+  // Helper: Luôn trả về pixel
+  const sendPixel = () => {
+    const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.writeHead(200, {
+      'Content-Type': 'image/gif',
+      'Content-Length': pixel.length,
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    res.end(pixel);
+  };
+
   try {
     const { customerId, taskId, duration } = req.query;
     
+    // ✅ Log để debug
+    console.log('🖼️ Beacon:', { 
+      customerId, 
+      taskId, 
+      hasCustomerId: !!customerId,
+      hasTaskId: !!taskId,
+      fullUrl: req.url 
+    });
+    
+    // ✅ Validate params
     if (!customerId || !taskId) {
-      return res.status(400).end();
+      console.warn('⚠️ Missing params - returning pixel');
+      return sendPixel();
     }
     
-    // Tạo metadata object
+    // ✅ Validate customerId format
+    const isValidId = /^\d+$/.test(String(customerId)) || 
+                      String(customerId).startsWith('gid://shopify/Customer/');
+    
+    if (!isValidId) {
+      console.warn('⚠️ Invalid customerId format:', customerId);
+      return sendPixel();
+    }
+    
+    // ✅ Process task
     const metadata = {};
     if (duration) metadata.duration = parseInt(duration);
     
-    // Gọi hàm completeTask trực tiếp (KHÔNG dùng trackLoyaltyTask)
     const result = await completeTask(customerId, taskId, metadata);
-    
     clearCache(customerId);
     
-    // Trả về ảnh 1x1 pixel trong suốt
-    const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
-    res.writeHead(200, {
-      'Content-Type': 'image/gif',
-      'Content-Length': pixel.length
-    });
-    res.end(pixel);
+    if (result.success) {
+      console.log(`✅ Beacon success: ${taskId} +${result.earnedPoints}pts`);
+    } else {
+      console.log(`ℹ️ Beacon: ${result.message}`);
+    }
+    
+    return sendPixel();
+    
   } catch (error) {
-    console.error('Beacon error:', error);
-    // Vẫn trả về pixel để không lỗi frontend
-    const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
-    res.writeHead(200, {
-      'Content-Type': 'image/gif',
-      'Content-Length': pixel.length
-    });
-    res.end(pixel);
+    console.error('❌ Beacon error:', error.message);
+    return sendPixel();
   }
 });
+
 
 // Đổi voucher
 app.post('/api/redeem-voucher', async (req, res) => {
