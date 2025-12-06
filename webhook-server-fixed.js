@@ -111,16 +111,20 @@ app.post('/api/loyalty/track', trackLoyaltyTask);
 // Thêm GET endpoint cho image beacon
 app.get('/api/loyalty/track', async (req, res) => {
   try {
-    const { customerId, taskId, ...metadata } = req.query;
+    const { customerId, taskId, duration } = req.query;
     
-    // Gọi hàm trackLoyaltyTask với format đúng
-    await trackLoyaltyTask({
-      body: { customerId, taskId, metadata },
-      query: req.query
-    }, {
-      json: (data) => data,
-      status: () => ({ json: (data) => data })
-    });
+    if (!customerId || !taskId) {
+      return res.status(400).end();
+    }
+    
+    // Tạo metadata object
+    const metadata = {};
+    if (duration) metadata.duration = parseInt(duration);
+    
+    // Gọi hàm completeTask trực tiếp (KHÔNG dùng trackLoyaltyTask)
+    const result = await completeTask(customerId, taskId, metadata);
+    
+    clearCache(customerId);
     
     // Trả về ảnh 1x1 pixel trong suốt
     const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
@@ -131,7 +135,13 @@ app.get('/api/loyalty/track', async (req, res) => {
     res.end(pixel);
   } catch (error) {
     console.error('Beacon error:', error);
-    res.status(200).end(); // Vẫn trả 200 để không lỗi
+    // Vẫn trả về pixel để không lỗi frontend
+    const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.writeHead(200, {
+      'Content-Type': 'image/gif',
+      'Content-Length': pixel.length
+    });
+    res.end(pixel);
   }
 });
 
