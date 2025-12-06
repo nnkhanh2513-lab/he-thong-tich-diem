@@ -108,6 +108,32 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
 // ========== TRACKING CHO 5 NHIỆM VỤ (Login, Browse, Read, Collect, Game) ==========
 // TÁI SỬ DỤNG LOGIC TỪ loyaltytasks.js
 app.post('/api/loyalty/track', trackLoyaltyTask);
+// Thêm GET endpoint cho image beacon
+app.get('/api/loyalty/track', async (req, res) => {
+  try {
+    const { customerId, taskId, ...metadata } = req.query;
+    
+    // Gọi hàm trackLoyaltyTask với format đúng
+    await trackLoyaltyTask({
+      body: { customerId, taskId, metadata },
+      query: req.query
+    }, {
+      json: (data) => data,
+      status: () => ({ json: (data) => data })
+    });
+    
+    // Trả về ảnh 1x1 pixel trong suốt
+    const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.writeHead(200, {
+      'Content-Type': 'image/gif',
+      'Content-Length': pixel.length
+    });
+    res.end(pixel);
+  } catch (error) {
+    console.error('Beacon error:', error);
+    res.status(200).end(); // Vẫn trả 200 để không lỗi
+  }
+});
 
 // Đổi voucher
 app.post('/api/redeem-voucher', async (req, res) => {
