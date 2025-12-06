@@ -231,13 +231,18 @@ async function getCustomerMetafields(customerId) {
 
 // ===== METAFIELDS SET (batch mutation) =====
 async function metafieldsSetPayload(metafieldsArray) {
-  const fields = metafieldsArray.map(m => `{
-    ownerId: "${m.ownerId}"
-    namespace: "${m.namespace}"
-    key: "${m.key}"
-    value: ${JSON.stringify(m.value)}
-    type: "${m.type || 'json'}"
-  }`).join('\n');
+  const fields = metafieldsArray.map(m => {
+    // ✅ FIX: Escape JSON string properly
+    const valueStr = JSON.stringify(JSON.stringify(m.value));
+    
+    return `{
+      ownerId: "${m.ownerId}"
+      namespace: "${m.namespace}"
+      key: "${m.key}"
+      value: ${valueStr}
+      type: "${m.type || 'json'}"
+    }`;
+  }).join('\n');
 
   const mutation = `
     mutation {
