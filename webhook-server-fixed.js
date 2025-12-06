@@ -1,6 +1,5 @@
 const express = require('express');
 const fetch = require('node-fetch');
-const cors = require('cors');
 const { sendNotification, markAllRead, markAsRead } = require('./notifications');
 
 // Nhập các hàm cần thiết từ loyaltytasks
@@ -17,36 +16,21 @@ const {
 const app = express();
 
 // CORS - CHO PHÉP CÁC DOMAIN CỤ THỂ
-app.use(cors({
-  origin: function (origin, callback) {
-    // Cho phép requests không có origin (Postman, server-to-server)
-    if (!origin) return callback(null, true);
-    
-    // Whitelist cụ thể
-    const allowedOrigins = [
-      'https://ket-noi-tri-thuc.myshopify.com',
-      'https://kntt.vn',
-      'http://localhost:3000'
-    ];
-    
-    // ✅ CHO PHÉP TẤT CẢ SHOPIFY DOMAINS
-    if (
-      allowedOrigins.includes(origin) ||
-      origin.includes('shopify.com') ||           // ← THÊM
-      origin.includes('myshopify.com') ||         // ← THÊM
-      origin.includes('shopifysvc.com') ||        // ← THÊM
-      origin.includes('shopifycdn.com')           // ← THÊM
-    ) {
-      return callback(null, true);
-    }
-    
-    console.warn('⚠️ CORS blocked:', origin);
-    callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
-}));
+// ✅ CORS - MANUAL HEADERS
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  res.header('Access-Control-Allow-Origin', origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+  res.header('Access-Control-Max-Age', '86400');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
 
 // Parse JSON body
 app.use(express.json());
