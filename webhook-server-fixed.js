@@ -110,67 +110,52 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
 app.post('/api/loyalty/track', trackLoyaltyTask);
 // GET endpoint cho image beacon - FINAL VERSION
 app.get('/api/loyalty/track', async (req, res) => {
-  // Helper: Luôn trả về pixel
+  // ✅ LOG TOÀN BỘ REQUEST
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🖼️ GET /api/loyalty/track');
+  console.log('Full URL:', req.url);
+  console.log('Query params:', req.query);
+  console.log('customerId:', req.query.customerId, 'type:', typeof req.query.customerId);
+  console.log('taskId:', req.query.taskId);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  
   const sendPixel = () => {
     const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
     res.writeHead(200, {
       'Content-Type': 'image/gif',
       'Content-Length': pixel.length,
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0'
+      'Cache-Control': 'no-cache'
     });
     res.end(pixel);
   };
 
   try {
-    const { customerId, taskId, duration } = req.query;
+    const { customerId, taskId } = req.query;
     
-    // ✅ Log để debug
-    console.log('🖼️ Beacon:', { 
-      customerId, 
-      taskId, 
-      hasCustomerId: !!customerId,
-      hasTaskId: !!taskId,
-      fullUrl: req.url 
-    });
-    
-    // ✅ Validate params
     if (!customerId || !taskId) {
-      console.warn('⚠️ Missing params - returning pixel');
+      console.warn('⚠️ Missing params');
       return sendPixel();
     }
     
-    // ✅ Validate customerId format
-    const isValidId = /^\d+$/.test(String(customerId)) || 
-                      String(customerId).startsWith('gid://shopify/Customer/');
+    const isValidId = /^\d+$/.test(String(customerId));
     
     if (!isValidId) {
-      console.warn('⚠️ Invalid customerId format:', customerId);
+      console.error('❌ INVALID ID FORMAT:', customerId);
       return sendPixel();
     }
     
-    // ✅ Process task
-    const metadata = {};
-    if (duration) metadata.duration = parseInt(duration);
-    
-    const result = await completeTask(customerId, taskId, metadata);
+    const result = await completeTask(customerId, taskId, {});
     clearCache(customerId);
     
-    if (result.success) {
-      console.log(`✅ Beacon success: ${taskId} +${result.earnedPoints}pts`);
-    } else {
-      console.log(`ℹ️ Beacon: ${result.message}`);
-    }
+    console.log('✅ Result:', result.success ? 'success' : result.message);
     
     return sendPixel();
     
   } catch (error) {
-    console.error('❌ Beacon error:', error.message);
+    console.error('❌ Error:', error.message);
     return sendPixel();
   }
 });
-
 
 // Đổi voucher
 app.post('/api/redeem-voucher', async (req, res) => {
