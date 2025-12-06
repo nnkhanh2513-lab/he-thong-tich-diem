@@ -232,15 +232,15 @@ async function getCustomerMetafields(customerId) {
 // ===== METAFIELDS SET (batch mutation) =====
 async function metafieldsSetPayload(metafieldsArray) {
   const fields = metafieldsArray.map(m => {
-    // ✅ XỬ LÝ THEO TYPE
     let valueStr;
     
     if (m.type === 'number_integer') {
-      // Number: không stringify
-      valueStr = m.value;
+      // ✅ Number cũng phải stringify!
+      valueStr = `"${m.value}"`;
     } else {
-      // JSON (object/array): double stringify
-      valueStr = JSON.stringify(JSON.stringify(m.value));
+      // JSON (object/array): stringify 1 lần, rồi escape quotes
+      const jsonStr = JSON.stringify(m.value);
+      valueStr = `"${jsonStr.replace(/"/g, '\\"')}"`;
     }
     
     return `{
@@ -277,6 +277,7 @@ async function metafieldsSetPayload(metafieldsArray) {
 
   return res.metafields;
 }
+
 
 // ===== GET CUSTOMER POINTS (with cache) =====
 async function getCustomerPoints(customerId) {
