@@ -1,5 +1,6 @@
 // notifications.js
 const fetch = require('node-fetch');
+const { metafieldsSetPayload } = require('./loyaltytasks');
 
 const SHOPIFY_CONFIG = {
   domain: 'ket-noi-tri-thuc.myshopify.com',
@@ -177,40 +178,20 @@ async function getCustomerMetafields(customerId) {
   return { id: customer.id, metafields };
 }
 
-// Helper: Update metafields
-async function updateCustomerMetafields(customerId, updates) {
-  const metafields = Object.entries(updates).map(([key, value]) => {
-    const [namespace, fieldKey] = key.split('.');
-    
-    let type = 'single_line_text_field';
-    if (typeof value === 'number') {
-      type = 'number_integer';
-    } else if (key.includes('history') || key.includes('preferences')) {
-      type = 'json';
-    } else if (key.includes('last_notification_sent')) {
-      type = 'date_time';
-    }
-    
-    return {
-      namespace,
-      key: fieldKey,
-      value: type === 'json' ? value : String(value),
-      type
-    };
-  });
-  
-  const mutation = `
-    mutation {
-      customerUpdate(input: {
-        id: "gid://shopify/Customer/${customerId}",
-        metafields: ${JSON.stringify(metafields).replace(/"([^"]+)":/g, '$1:')}
-      }) {
-        customer {
-          id
-        }
-        userErrors {
-          field
-          message
+// Helper: Lấy metafields của customer (GIỮ NGUYÊN)
+async function getCustomerMetafields(customerId) {
+  const query = `
+    query {
+      customer(id: "gid://shopify/Customer/${customerId}") {
+        id
+        metafields(first: 20) {
+          edges {
+            node {
+              namespace
+              key
+              value
+            }
+          }
         }
       }
     }
@@ -222,16 +203,51 @@ async function updateCustomerMetafields(customerId, updates) {
       'Content-Type': 'application/json',
       'X-Shopify-Access-Token': SHOPIFY_CONFIG.token
     },
-    body: JSON.stringify({ query: mutation })
+    body: JSON.stringify({ query })
   });
   
   const data = await response.json();
   
-  if (data.errors || data.data?.customerUpdate?.userErrors?.length > 0) {
-    throw new Error(data.errors?.[0]?.message || data.data.customerUpdate.userErrors[0].message);
+  if (data.errors) {
+    throw new Error(data.errors[0].message);
   }
   
-  return data.data.customerUpdate.customer;
+  const customer = data.data.customer;
+  const metafields = {};
+  
+  customer.metafields.edges.forEach(({ node }) => {
+    if (!metafields[node.namespace]) {
+      metafields[node.namespace] = {};
+    }
+    metafields[node.namespace][node.key] = node.value;
+  });
+  
+  return { id: customer.id, metafields };
+}
+
+// ✅ Helper: Update metafields - FIXED VERSION
+async function updateCustomerMetafields(customerId, updates) {
+  const metafieldsArray = Object.entries(updates).map(([key, value]) => {
+    const [namespace, fieldKey] = key.split('.');
+    
+    let type = 'json';
+    if (typeof value === 'number') {
+      type = 'number_integer';
+    } else if (key.includes('last_notification_sent')) {
+      type = 'date_time';
+    }
+    
+    return {
+      ownerId: `gid://shopify/Customer/${customerId}`,
+      namespace,
+      key: fieldKey,
+      value,
+      type
+    };
+  });
+  
+  // ✅ Tái sử dụng hàm từ loyaltytasks.js
+  return await metafieldsSetPayload(metafieldsArray);
 }
 
 module.exports = {
