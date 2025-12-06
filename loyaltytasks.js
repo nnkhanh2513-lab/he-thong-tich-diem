@@ -181,9 +181,12 @@ async function shopifyGraphQL(query) {
 
 // ===== GET CUSTOMER METAFIELDS (GraphQL - optimized) =====
 async function getCustomerMetafields(customerId) {
+  // ✅ NORMALIZE customer ID trước khi query
+  const normalizedId = extractCustomerId(customerId); // Luôn trả về số thuần
+  
   const query = `
     query {
-      customer(id: "gid://shopify/Customer/${customerId}") {
+      customer(id: "gid://shopify/Customer/${normalizedId}") {
         id
         points: metafield(namespace: "loyalty", key: "points") {
           id
@@ -216,7 +219,7 @@ async function getCustomerMetafields(customerId) {
 
   const data = await shopifyGraphQL(query);
   if (!data.customer) {
-    throw new Error(`Customer ${customerId} not found`);
+    throw new Error(`Customer ${normalizedId} not found`);
   }
 
   return {
@@ -228,6 +231,7 @@ async function getCustomerMetafields(customerId) {
     vouchers: data.customer.vouchers
   };
 }
+
 
 // ===== METAFIELDS SET (batch mutation) =====
 async function metafieldsSetPayload(metafieldsArray) {
