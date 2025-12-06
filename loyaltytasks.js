@@ -854,6 +854,7 @@ module.exports = {
   getCustomerPoints,
   getCompletedTasks,
   getCustomerMetafields,
+  metafieldsSetPayload,
   
   // API wrapper
   API,
