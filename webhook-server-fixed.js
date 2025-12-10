@@ -114,8 +114,8 @@ app.get('/api/loyalty/track', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('🖼️ GET /api/loyalty/track');
   console.log('Full URL:', req.url);
-  console.log('Query params:', req.query);
-  console.log('customerId:', req.query.customerId, 'type:', typeof req.query.customerId);
+  console.log('Query params:', JSON.stringify(req.query));
+  console.log('customerId:', req.query.customerId);
   console.log('taskId:', req.query.taskId);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
@@ -132,27 +132,29 @@ app.get('/api/loyalty/track', async (req, res) => {
   try {
     const { customerId, taskId } = req.query;
     
+    // ✅ VALIDATE ĐẦU VÀO
     if (!customerId || !taskId) {
-      console.warn('⚠️ Missing params');
+      console.warn('⚠️ Missing required params');
       return sendPixel();
     }
     
-    const isValidId = /^\d+$/.test(String(customerId));
-    
-    if (!isValidId) {
-      console.error('❌ INVALID ID FORMAT:', customerId);
+    // ✅ VALIDATE FORMAT
+    if (!/^\d+$/.test(String(customerId))) {
+      console.error('❌ Invalid customerId format:', customerId);
       return sendPixel();
     }
+    
+    console.log('✅ Processing task:', taskId, 'for customer:', customerId);
     
     const result = await completeTask(customerId, taskId, {});
     clearCache(customerId);
     
-    console.log('✅ Result:', result.success ? 'success' : result.message);
+    console.log('✅ Task result:', result.success ? 'SUCCESS' : result.message);
     
     return sendPixel();
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ Error in GET /api/loyalty/track:', error.message);
     return sendPixel();
   }
 });
