@@ -749,22 +749,29 @@ async function trackLoyaltyTask(req, res) {
         break;
 
       case 'browse':
-        const minutes = metadata.minutes || TASKS.BROWSE_TIME.requiredMinutes;
+        // ✅ FIX: Đọc duration_seconds từ body, không phải metadata
+        const seconds = duration_seconds || metadata.duration_seconds || 120;
+        const minutes = Math.floor(seconds / 60);
         result = await API.trackBrowseTime(customerId, minutes);
         break;
 
-      case 'read':
-        const pages = metadata.pages || TASKS.READ_PAGES.requiredPages;
+
+     case 'read':
+        // ✅ FIX: Đọc pages_visited từ body
+        const pages = pages_visited || metadata.pages_visited || TASKS.READ_PAGES.requiredPages;
         result = await API.trackReadPages(customerId, pages);
         break;
 
+
       case 'collect':
-        const bookCount = metadata.bookCount || TASKS.COLLECT_BOOKS.requiredBooks;
-        result = await API.trackCollectBooks(customerId, bookCount);
+        // ✅ FIX: Đọc bookCount từ body
+        const books = bookCount || metadata.bookCount || TASKS.COLLECT_BOOKS.requiredBooks;
+        result = await API.trackCollectBooks(customerId, books);
         break;
 
       case 'game':
-        const score = metadata.score || 100;
+        // ✅ FIX: Đọc result từ body
+        const score = gameResult || metadata.result || 100;
         result = await API.playGame(customerId, score);
         break;
 
@@ -780,16 +787,16 @@ async function trackLoyaltyTask(req, res) {
         result = await API.trackOrder(customerId, orderId);
         break;
 
-      // ✅ THÊM: Redeem voucher
-      case 'redeem':
-        const points = metadata.points;
-        if (!points) {
+       case 'redeem':
+        // ✅ FIX: Đọc points từ body
+        const pointsToRedeem = points || metadata.points;
+        if (!pointsToRedeem) {
           return res.status(400).json({
             success: false,
             message: 'Thiếu points để đổi voucher'
           });
         }
-        result = await API.redeem(customerId, points);
+        result = await API.redeem(customerId, pointsToRedeem);
         break;
 
       default:
