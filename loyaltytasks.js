@@ -711,9 +711,9 @@ const API = {
 
 // ===== TRACKING API (for webhook server) - COMPLETE VERSION =====
 async function trackLoyaltyTask(req, res) {
-  const { customer_id, customer_email, task_type, metadata = {} } = req.body;
+  const { customer_id, customer_email, task_type, metadata = {}, duration_seconds, pages_visited, bookCount, result: gameResult, points } = req.body;
 
-  console.log('📊 Tracking request:', { customer_id, customer_email, task_type });
+  console.log('📊 Tracking request:', { customer_id, customer_email, task_type, body: req.body });
 
   // Validate
   if (!customer_id && !customer_email) {
@@ -749,19 +749,17 @@ async function trackLoyaltyTask(req, res) {
         break;
 
       case 'browse':
-        // ✅ FIX: Đọc duration_seconds từ body, không phải metadata
+        // ✅ FIX: Đọc duration_seconds từ body
         const seconds = duration_seconds || metadata.duration_seconds || 120;
         const minutes = Math.floor(seconds / 60);
         result = await API.trackBrowseTime(customerId, minutes);
         break;
 
-
-     case 'read':
+      case 'read':
         // ✅ FIX: Đọc pages_visited từ body
         const pages = pages_visited || metadata.pages_visited || TASKS.READ_PAGES.requiredPages;
         result = await API.trackReadPages(customerId, pages);
         break;
-
 
       case 'collect':
         // ✅ FIX: Đọc bookCount từ body
@@ -775,7 +773,6 @@ async function trackLoyaltyTask(req, res) {
         result = await API.playGame(customerId, score);
         break;
 
-      // ✅ THÊM: Order completion
       case 'order':
         const orderId = metadata.orderId;
         if (!orderId) {
@@ -787,7 +784,7 @@ async function trackLoyaltyTask(req, res) {
         result = await API.trackOrder(customerId, orderId);
         break;
 
-       case 'redeem':
+      case 'redeem':
         // ✅ FIX: Đọc points từ body
         const pointsToRedeem = points || metadata.points;
         if (!pointsToRedeem) {
@@ -810,7 +807,6 @@ async function trackLoyaltyTask(req, res) {
 
     // Return result
     if (result.success) {
-      // ✅ Handle redeem response (khác với task response)
       if (task_type === 'redeem') {
         res.json({
           success: true,
@@ -820,7 +816,6 @@ async function trackLoyaltyTask(req, res) {
           message: result.message
         });
       } else {
-        // Normal task response
         res.json({
           success: true,
           task: task_type,
@@ -847,12 +842,14 @@ async function trackLoyaltyTask(req, res) {
   }
 }
 
+
 // ===== HELPER: Clear cache =====
 function clearCache(customerId) {
   if (redis) {
     redis.del(`points:${customerId}`);
   }
 }
+
 // ===== EXPORTS =====
 module.exports = {
   // Core functions
