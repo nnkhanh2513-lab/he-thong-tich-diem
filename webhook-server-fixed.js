@@ -92,14 +92,32 @@ app.get('/api/loyalty/track', async (req, res) => {
       return sendPixel();
     }
     
-    console.log('✅ Processing:', taskId, 'for', customerIdStr);
-    
-    const result = await completeTask(customerIdStr, taskId, {});
-    clearCache(customerIdStr);
-    
-    console.log('✅ Result:', result.success ? 'SUCCESS' : result.message);
-    
-    return sendPixel();
+   console.log('✅ Processing:', taskId, 'for', customerIdStr);
+
+// ✅ XỬ LÝ TỪNG TASK TYPE
+const { duration, pages, books, score, points } = req.query;
+let result;
+
+if (taskId === 'redeem' && points) {
+  result = await redeemVoucher(customerIdStr, parseInt(points));
+} else if (taskId === 'browse_time' && duration) {
+  const minutes = Math.floor(parseInt(duration) / 60);
+  result = await API.trackBrowseTime(customerIdStr, minutes);
+} else if (taskId === 'read_pages' && pages) {
+  result = await API.trackReadPages(customerIdStr, parseInt(pages));
+} else if ((taskId === 'collect' || taskId === 'collect_books') && books) {
+  result = await API.trackCollectBooks(customerIdStr, parseInt(books));
+} else if ((taskId === 'game' || taskId === 'play_game') && score) {
+  result = await API.playGame(customerIdStr, parseInt(score));
+} else {
+  // Default: login, complete_order, etc.
+  result = await completeTask(customerIdStr, taskId, {});
+}
+
+clearCache(customerIdStr);
+console.log('✅ Result:', result.success ? 'SUCCESS' : result.message);
+
+return sendPixel();
     
   } catch (error) {
     console.error('❌ Error:', error.message);
