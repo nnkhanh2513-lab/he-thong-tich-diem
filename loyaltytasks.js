@@ -392,7 +392,7 @@ async function completeTask(customerId, taskId, metadata = {}) {
       }
 
       console.log(`✅ [${customerId}] ${task.name}: +${points} → ${totalPoints}`);
-
+ /*
       // ========== GỬI THÔNG BÁO ==========
       const { sendNotification } = require('./notifications');
       await sendNotification(customerId, {
@@ -402,7 +402,7 @@ async function completeTask(customerId, taskId, metadata = {}) {
         link: '/account'
       }).catch(err => console.error('Failed to send notification:', err));
       // ====================================
-      
+  */
       return {
         success: true,
         message: `Hoàn thành nhiệm vụ "${task.name}"! +${points} điểm`,
