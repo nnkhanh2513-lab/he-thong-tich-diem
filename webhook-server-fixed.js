@@ -239,9 +239,14 @@ app.post('/webhooks/orders/paid', async (req, res) => {
       return res.status(200).send('OK');
     }
     
-    console.log(`📦 Order paid: ${order.id} - Customer: ${rawCustomerId}`);
+    // ✅ NORMALIZE CUSTOMER ID
+    const { extractCustomerId } = require('./loyaltytasks');
+    const customerId = extractCustomerId(rawCustomerId);
     
-    const result = await completeTask(rawCustomerId, 'complete_order', { orderId: order.id });
+    console.log(`📦 Order paid: ${order.id} - Customer: ${customerId}`);
+    
+    const result = await completeTask(customerId, 'complete_order', { orderId: order.id });
+
     clearCache(rawCustomerId);
     
     if (result.success) {
