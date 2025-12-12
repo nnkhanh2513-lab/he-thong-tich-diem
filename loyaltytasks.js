@@ -242,11 +242,7 @@ async function metafieldsSetPayload(metafieldsArray) {
       // ✅ Number cũng phải stringify!
       valueStr = `"${m.value}"`;
     } else {
-      // JSON: stringify rồi escape ĐÚNG CÁCH
-      const jsonStr = JSON.stringify(m.value);
-      // ✅ Escape backslash trước, rồi mới escape quotes
-      valueStr = jsonStr.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      valueStr = `"${valueStr}"`;
+  valueStr = JSON.stringify(JSON.stringify(m.value));
     }
     
     return `{
