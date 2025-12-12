@@ -65,9 +65,64 @@ app.get('/api/loyalty/track', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('🖼️ GET /api/loyalty/track');
   console.log('Query:', req.query);
-  console.log('Params:', req.params);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
+  const { callback } = req.query; // ✅ KIỂM TRA CALLBACK
+  
+  // ✅ NẾU CÓ CALLBACK → TRẢ JSONP (cho redeem, game, etc.)
+  if (callback) {
+    try {
+      const { customerId, taskId, duration, pages, books, score, points } = req.query;
+      
+      if (!customerId || !taskId) {
+        return res.type('application/javascript').send(
+          `${callback}(${JSON.stringify({ success: false, message: 'Missing params' })})`
+        );
+      }
+      
+      const customerIdStr = String(customerId);
+      if (!/^\d+$/.test(customerIdStr)) {
+        return res.type('application/javascript').send(
+          `${callback}(${JSON.stringify({ success: false, message: 'Invalid customerId' })})`
+        );
+      }
+      
+      console.log('✅ JSONP Processing:', taskId, 'for', customerIdStr);
+      
+      let result;
+      
+      if (taskId === 'redeem' && points) {
+        result = await redeemVoucher(customerIdStr, parseInt(points));
+      } else if (taskId === 'browse_time' && duration) {
+        const minutes = Math.floor(parseInt(duration) / 60);
+        result = await API.trackBrowseTime(customerIdStr, minutes);
+      } else if (taskId === 'read_pages' && pages) {
+        result = await API.trackReadPages(customerIdStr, parseInt(pages));
+      } else if ((taskId === 'collect' || taskId === 'collect_books') && books) {
+        result = await API.trackCollectBooks(customerIdStr, parseInt(books));
+      } else if ((taskId === 'game' || taskId === 'play_game') && score) {
+        result = await API.playGame(customerIdStr, parseInt(score));
+      } else {
+        result = await completeTask(customerIdStr, taskId, {});
+      }
+      
+      clearCache(customerIdStr);
+      console.log('✅ JSONP Result:', result);
+      
+      // ✅ TRẢ JSONP
+      return res.type('application/javascript').send(
+        `${callback}(${JSON.stringify(result)})`
+      );
+      
+    } catch (error) {
+      console.error('❌ JSONP Error:', error.message);
+      return res.type('application/javascript').send(
+        `${callback}(${JSON.stringify({ success: false, message: error.message })})`
+      );
+    }
+  }
+  
+  // ✅ KHÔNG CÓ CALLBACK → TRẢ PIXEL (cho login, browse, read)
   const sendPixel = () => {
     const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
     res.writeHead(200, {
@@ -79,7 +134,7 @@ app.get('/api/loyalty/track', async (req, res) => {
   };
 
   try {
-    const { customerId, taskId } = req.query;
+    const { customerId, taskId, duration, pages, books, score, points } = req.query;
     
     if (!customerId || !taskId) {
       console.warn('⚠️ Missing params');
@@ -92,35 +147,32 @@ app.get('/api/loyalty/track', async (req, res) => {
       return sendPixel();
     }
     
-   console.log('✅ Processing:', taskId, 'for', customerIdStr);
+    console.log('✅ Pixel Processing:', taskId, 'for', customerIdStr);
 
-// ✅ XỬ LÝ TỪNG TASK TYPE
-const { duration, pages, books, score, points } = req.query;
-let result;
+    let result;
 
-if (taskId === 'redeem' && points) {
-  result = await redeemVoucher(customerIdStr, parseInt(points));
-} else if (taskId === 'browse_time' && duration) {
-  const minutes = Math.floor(parseInt(duration) / 60);
-  result = await API.trackBrowseTime(customerIdStr, minutes);
-} else if (taskId === 'read_pages' && pages) {
-  result = await API.trackReadPages(customerIdStr, parseInt(pages));
-} else if ((taskId === 'collect' || taskId === 'collect_books') && books) {
-  result = await API.trackCollectBooks(customerIdStr, parseInt(books));
-} else if ((taskId === 'game' || taskId === 'play_game') && score) {
-  result = await API.playGame(customerIdStr, parseInt(score));
-} else {
-  // Default: login, complete_order, etc.
-  result = await completeTask(customerIdStr, taskId, {});
-}
+    if (taskId === 'redeem' && points) {
+      result = await redeemVoucher(customerIdStr, parseInt(points));
+    } else if (taskId === 'browse_time' && duration) {
+      const minutes = Math.floor(parseInt(duration) / 60);
+      result = await API.trackBrowseTime(customerIdStr, minutes);
+    } else if (taskId === 'read_pages' && pages) {
+      result = await API.trackReadPages(customerIdStr, parseInt(pages));
+    } else if ((taskId === 'collect' || taskId === 'collect_books') && books) {
+      result = await API.trackCollectBooks(customerIdStr, parseInt(books));
+    } else if ((taskId === 'game' || taskId === 'play_game') && score) {
+      result = await API.playGame(customerIdStr, parseInt(score));
+    } else {
+      result = await completeTask(customerIdStr, taskId, {});
+    }
 
-clearCache(customerIdStr);
-console.log('✅ Result:', result.success ? 'SUCCESS' : result.message);
+    clearCache(customerIdStr);
+    console.log('✅ Pixel Result:', result.success ? 'SUCCESS' : result.message);
 
-return sendPixel();
+    return sendPixel();
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ Pixel Error:', error.message);
     return sendPixel();
   }
 });
