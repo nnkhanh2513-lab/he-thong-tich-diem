@@ -1,3 +1,4 @@
+// server.js - COMPLETE VERSION WITH BEACON
 const express = require('express');
 const fetch = require('node-fetch');
 const { sendNotification, markAllRead, markAsRead } = require('./notifications');
@@ -8,8 +9,19 @@ const {
   redeemVoucher,
   getCompletedTasks,
   clearCache,
-  API
+  API,
+  extractCustomerId
 } = require('./loyaltytasks');
+
+const {
+  triggerNewBookRelease,
+  triggerPriceDrop,
+  triggerBackInStock,
+  triggerNewReview,
+  triggerPromotion,
+  triggerUpdateInfo,
+  triggerMaintenance
+} = require('./notification-triggers');
 
 const app = express();
 
@@ -23,7 +35,6 @@ app.use((req, res, next) => {
   res.header('Access-Control-Max-Age', '86400');
   
   if (req.method === 'OPTIONS') {
-    // ✅ Trả về 204 No Content (chuẩn cho preflight)
     return res.status(204).end();
   }
   
@@ -34,9 +45,9 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ========== DEBUG MIDDLEWARE (optional) ==========
+// ========== DEBUG MIDDLEWARE ==========
 app.use((req, res, next) => {
-  if (req.path.includes('/loyalty')) {
+  if (req.path.includes('/loyalty') || req.path.includes('/notifications') || req.path.includes('/triggers')) {
     console.log(`📥 ${req.method} ${req.path}`, req.query);
   }
   next();
@@ -60,14 +71,29 @@ const TASKS = {
 
 // ========== ROUTES - THỨ TỰ QUAN TRỌNG! ==========
 
-// ✅ 1. SPECIFIC ROUTES TRƯỚC (GET /api/loyalty/track)
+// Health check
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'Loyalty & Notification System',
+    version: '3.0',
+    endpoints: {
+      loyalty: '/api/loyalty/*',
+      notifications: '/api/notifications/*',
+      triggers: '/api/triggers/*',
+      webhooks: '/webhooks/*'
+    }
+  });
+});
+
+// ✅ 1. GET /api/loyalty/track - BEACON ENDPOINT (SPECIFIC ROUTE TRƯỚC)
 app.get('/api/loyalty/track', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('🖼️ GET /api/loyalty/track');
   console.log('Query:', req.query);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
-  const { callback } = req.query; // ✅ KIỂM TRA CALLBACK
+  const { callback } = req.query;
   
   // ✅ NẾU CÓ CALLBACK → TRẢ JSONP (cho redeem, game, etc.)
   if (callback) {
@@ -109,7 +135,6 @@ app.get('/api/loyalty/track', async (req, res) => {
       clearCache(customerIdStr);
       console.log('✅ JSONP Result:', result);
       
-      // ✅ TRẢ JSONP
       return res.type('application/javascript').send(
         `${callback}(${JSON.stringify(result)})`
       );
@@ -200,7 +225,7 @@ app.get('/api/loyalty/:customerId', async (req, res) => {
   }
 });
 
-// ========== OTHER ENDPOINTS ==========
+// ========== OTHER LOYALTY ENDPOINTS ==========
 
 app.get('/api/tasks', (req, res) => {
   res.json(TASKS);
@@ -270,8 +295,8 @@ app.post('/api/notifications/mark-read/:notificationId', async (req, res) => {
 
 app.post('/api/notifications/send', async (req, res) => {
   try {
-    const { customerId, type, title, message, link } = req.body;
-    const result = await sendNotification(customerId, { type, title, message, link });
+    const { customerId, type, title, message, link, data } = req.body;
+    const result = await sendNotification(customerId, { type, title, message, link, data });
     res.json(result);
   } catch (error) {
     console.error('Error:', error);
@@ -280,13 +305,51 @@ app.post('/api/notifications/send', async (req, res) => {
 });
 
 // ========== NOTIFICATION TRIGGERS ==========
-const {
-  triggerPromotion,
-  triggerUpdateInfo,
-  triggerMaintenance
-} = require('./notification-triggers');
 
-// Trigger promotion
+app.post('/api/triggers/new-book', async (req, res) => {
+  try {
+    const { productId, productData } = req.body;
+    const result = await triggerNewBookRelease(productId, productData);
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/triggers/price-drop', async (req, res) => {
+  try {
+    const { productId, oldPrice, newPrice, productData } = req.body;
+    const result = await triggerPriceDrop(productId, oldPrice, newPrice, productData);
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/triggers/back-in-stock', async (req, res) => {
+  try {
+    const { productId, productData } = req.body;
+    const result = await triggerBackInStock(productId, productData);
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/triggers/new-review', async (req, res) => {
+  try {
+    const { productId, reviewData, productData } = req.body;
+    const result = await triggerNewReview(productId, reviewData, productData);
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/triggers/promotion', async (req, res) => {
   try {
     const { title, message, code, link } = req.body;
@@ -298,7 +361,6 @@ app.post('/api/triggers/promotion', async (req, res) => {
   }
 });
 
-// Trigger update info
 app.post('/api/triggers/update-info/:customerId', async (req, res) => {
   try {
     const { customerId } = req.params;
@@ -310,7 +372,6 @@ app.post('/api/triggers/update-info/:customerId', async (req, res) => {
   }
 });
 
-// Trigger maintenance
 app.post('/api/triggers/maintenance', async (req, res) => {
   try {
     const { message, startTime, endTime } = req.body;
@@ -334,8 +395,6 @@ app.post('/webhooks/orders/paid', async (req, res) => {
       return res.status(200).send('OK');
     }
     
-    // ✅ NORMALIZE CUSTOMER ID
-    const { extractCustomerId } = require('./loyaltytasks');
     const customerId = extractCustomerId(rawCustomerId);
     
     console.log(`📦 Order paid: ${order.id} - Customer: ${customerId}`);
@@ -361,11 +420,13 @@ app.post('/webhooks/orders/paid', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`
-🚀 ===== LOYALTY SYSTEM =====
+🚀 ===== LOYALTY & NOTIFICATION SYSTEM =====
 📡 Server: http://localhost:${PORT}
-✅ Webhook: /webhooks/orders/paid
 ✅ Beacon: GET /api/loyalty/track
 ✅ Track: POST /api/loyalty/track
-============================
+✅ Notifications: /api/notifications/*
+✅ Triggers: /api/triggers/*
+✅ Webhook: /webhooks/orders/paid
+============================================
   `);
 });
