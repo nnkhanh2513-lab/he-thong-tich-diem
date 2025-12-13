@@ -619,13 +619,6 @@ async function redeemVoucher(customerId, pointsToRedeem) {
       throw error;
     }
   });
-
-    } catch (error) {
-      console.error(`❌ redeemVoucher failed [customer=${customerId}]:`, error);
-      console.error('Stack:', error.stack);
-      throw error;
-    }
-  });
 }
 
 // ===== FIND CUSTOMER BY EMAIL =====
