@@ -279,6 +279,49 @@ app.post('/api/notifications/send', async (req, res) => {
   }
 });
 
+// ========== NOTIFICATION TRIGGERS ==========
+const {
+  triggerPromotion,
+  triggerUpdateInfo,
+  triggerMaintenance
+} = require('./notification-triggers');
+
+// Trigger promotion
+app.post('/api/triggers/promotion', async (req, res) => {
+  try {
+    const { title, message, code, link } = req.body;
+    const result = await triggerPromotion({ title, message, code, link });
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Trigger update info
+app.post('/api/triggers/update-info/:customerId', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const result = await triggerUpdateInfo(customerId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Trigger maintenance
+app.post('/api/triggers/maintenance', async (req, res) => {
+  try {
+    const { message, startTime, endTime } = req.body;
+    const result = await triggerMaintenance({ message, startTime, endTime });
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ========== WEBHOOKS ==========
 
 app.post('/webhooks/orders/paid', async (req, res) => {
