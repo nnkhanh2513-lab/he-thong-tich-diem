@@ -242,7 +242,7 @@ async function metafieldsSetPayload(metafieldsArray) {
       // ✅ Number cũng phải stringify!
       valueStr = `"${m.value}"`;
     } else {
-  valueStr = JSON.stringify(JSON.stringify(m.value));
+      valueStr = JSON.stringify(m.value);
     }
     
     return `{
@@ -377,12 +377,11 @@ async function completeTask(customerId, taskId, metadata = {}) {
       });
       if (history.length > 100) history.length = 100;
 
-      // ✅ ATOMIC BATCH UPDATE
+          // ✅ ATOMIC BATCH UPDATE
       const ownerGid = metafields.ownerId || `gid://shopify/Customer/${customerId}`;
       await metafieldsSetPayload([
         { ownerId: ownerGid, namespace: 'loyalty', key: 'completed_tasks', value: completedTasks, type: 'json' },
         { ownerId: ownerGid, namespace: 'loyalty', key: 'points_batches', value: pointsBatches, type: 'json' },
-        { ownerId: ownerGid, namespace: 'loyalty', key: 'points', value: totalPoints, type: 'number_integer' },
         { ownerId: ownerGid, namespace: 'loyalty', key: 'points_history', value: history, type: 'json' }
       ]);
 
@@ -552,12 +551,11 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         });
         if (history.length > 100) history.length = 100;
 
-        // ✅ ATOMIC UPDATE
+        // ✅ ATOMIC UPDATE - BỎ points metafield
         const ownerGid = metafields.ownerId || `gid://shopify/Customer/${customerId}`;
         await metafieldsSetPayload([
           { ownerId: ownerGid, namespace: 'loyalty', key: 'points_batches', value: newBatches, type: 'json' },
           { ownerId: ownerGid, namespace: 'loyalty', key: 'vouchers', value: vouchers, type: 'json' },
-          { ownerId: ownerGid, namespace: 'loyalty', key: 'points', value: newTotal, type: 'number_integer' },
           { ownerId: ownerGid, namespace: 'loyalty', key: 'points_history', value: history, type: 'json' }
         ]);
 
@@ -567,6 +565,16 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         }
 
         console.log(`✅ Voucher created: ${voucherCode} | Remaining: ${newTotal} pts`);
+
+        // ========== GỬI THÔNG BÁO ==========
+        const { sendNotification } = require('./notifications');
+        await sendNotification(customerId, {
+          type: 'voucher_created',
+          title: `Voucher ${voucherCode} đã sẵn sàng!`,
+          message: `Giảm ${discountAmount.toLocaleString('vi-VN')}₫ - Hết hạn sau 30 ngày. Kiểm tra email hoặc trang tài khoản để sử dụng.`,
+          link: '/account'
+        }).catch(err => console.error('Failed to send notification:', err));
+        // ====================================
 
         return {
           success: true,
@@ -601,6 +609,7 @@ async function redeemVoucher(customerId, pointsToRedeem) {
     }
   });
 }
+
 
 // ===== FIND CUSTOMER BY EMAIL =====
 async function findCustomerByEmail(email) {
@@ -848,6 +857,15 @@ function clearCache(customerId) {
   }
 }
 
+// ===== HELPER: Extract customer ID =====
+function extractCustomerId(input) {
+  const str = String(input);
+  if (str.startsWith('gid://shopify/Customer/')) {
+    return str.split('/').pop();
+  }
+  if (/^\d+$/.test(str)) return str;
+  throw new Error('Invalid customer ID format: ' + str);
+}
 // ===== EXPORTS =====
 module.exports = {
   // Core functions
@@ -866,6 +884,8 @@ module.exports = {
   
   // Helpers
   findCustomerByEmail,
+    extractCustomerId, // ✅ THÊM EXPORT
+
   
   // Constants
   TASKS,
