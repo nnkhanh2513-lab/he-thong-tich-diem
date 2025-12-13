@@ -1,501 +1,205 @@
-// notifications.js - COMPLETE VERSION WITH EMAIL TEMPLATES
-const fetch = require('node-fetch');
-const { metafieldsSetPayload } = require('./loyaltytasks');
+// notifications.js - Backend endpoints
+const express = require('express');
+const router = express.Router();
+const nodemailer = require('nodemailer');
 
-const SHOPIFY_CONFIG = {
-  domain: 'ket-noi-tri-thuc.myshopify.com',
-  token: process.env.SHOPIFY_TOKEN || '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',
-  apiVersion: '2024-10'
-};
-
-// ===== EMAIL TEMPLATES =====
-const EMAIL_TEMPLATES = {
-  points_earned: (data) => ({
-    subject: `🌊 Bạn vừa nhận ${data.points} điểm!`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0; font-size: 32px;">🌊 +${data.points} điểm</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <h2>Chúc mừng!</h2>
-          <p style="font-size: 16px; line-height: 1.6;">
-            ${data.message}
-          </p>
-          <p style="font-size: 14px; color: #666;">
-            Tổng điểm hiện tại: <strong>${data.totalPoints || 0} điểm</strong>
-          </p>
-          <a href="https://ket-noi-tri-thuc.myshopify.com/account" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 6px;">
-            Xem điểm thưởng
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  voucher_created: (data) => ({
-    subject: `🎁 Voucher ${data.code} đã sẵn sàng!`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0; font-size: 32px;">🎁 Voucher mới!</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <h2>Voucher của bạn đã sẵn sàng!</h2>
-          <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
-            <div style="font-size: 24px; font-weight: bold; color: #667eea; margin-bottom: 10px;">
-              ${data.code}
-            </div>
-            <div style="font-size: 18px; color: #333;">
-              Giảm ${data.discount?.toLocaleString('vi-VN')}₫
-            </div>
-          </div>
-          <p style="font-size: 14px; color: #666;">
-            Voucher có hiệu lực trong 30 ngày. Sử dụng ngay để nhận ưu đãi!
-          </p>
-          <a href="https://ket-noi-tri-thuc.myshopify.com" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 6px;">
-            Mua sắm ngay
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  new_book_release: (data) => ({
-    subject: `📚 Sách mới: ${data.bookTitle}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #667eea; padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0;">📚 Sách mới phát hành!</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <h2>${data.bookTitle}</h2>
-          ${data.bookImage ? `<img src="${data.bookImage}" style="max-width: 100%; height: auto; border-radius: 8px; margin: 20px 0;">` : ''}
-          <p style="font-size: 16px; line-height: 1.6;">
-            ${data.description || 'Khám phá cuốn sách mới nhất của chúng tôi!'}
-          </p>
-          <a href="${data.link}" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 6px;">
-            Xem chi tiết
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  price_drop: (data) => ({
-    subject: `💰 Giảm giá: ${data.productTitle}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #e74c3c; padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0;">💰 GIẢM GIÁ!</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <h2>${data.productTitle}</h2>
-          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <div style="text-decoration: line-through; color: #999; font-size: 18px;">
-              ${data.oldPrice?.toLocaleString('vi-VN')}₫
-            </div>
-            <div style="font-size: 28px; font-weight: bold; color: #e74c3c;">
-              ${data.newPrice?.toLocaleString('vi-VN')}₫
-            </div>
-            <div style="color: #27ae60; font-size: 16px; margin-top: 10px;">
-              Tiết kiệm ${((data.oldPrice - data.newPrice) / data.oldPrice * 100).toFixed(0)}%
-            </div>
-          </div>
-          <a href="${data.link}" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #e74c3c; color: white; text-decoration: none; border-radius: 6px;">
-            Mua ngay
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  back_in_stock: (data) => ({
-    subject: `✅ ${data.productTitle} đã có hàng trở lại!`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #27ae60; padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0;">✅ Đã có hàng!</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <h2>${data.productTitle}</h2>
-          <p style="font-size: 16px; line-height: 1.6;">
-            Sản phẩm bạn quan tâm đã có hàng trở lại! Nhanh tay đặt hàng trước khi hết.
-          </p>
-          <a href="${data.link}" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #27ae60; color: white; text-decoration: none; border-radius: 6px;">
-            Đặt hàng ngay
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  new_review: (data) => ({
-    subject: `⭐ Review mới cho "${data.productTitle}"`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #f39c12; padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0;">⭐ Review mới!</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <h2>${data.productTitle}</h2>
-          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <div style="color: #f39c12; font-size: 20px; margin-bottom: 10px;">
-              ${'⭐'.repeat(data.rating || 5)}
-            </div>
-            <p style="font-style: italic; color: #666;">
-              "${data.reviewText}"
-            </p>
-            <p style="font-size: 14px; color: #999; margin-top: 10px;">
-              - ${data.reviewerName}
-            </p>
-          </div>
-          <a href="${data.link}" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #f39c12; color: white; text-decoration: none; border-radius: 6px;">
-            Xem tất cả reviews
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  promotion: (data) => ({
-    subject: `🎉 ${data.title}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0;">🎉 ${data.title}</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <p style="font-size: 18px; line-height: 1.6;">
-            ${data.message}
-          </p>
-          ${data.code ? `
-            <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
-              <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Mã giảm giá:</div>
-              <div style="font-size: 24px; font-weight: bold; color: #667eea;">
-                ${data.code}
-              </div>
-            </div>
-          ` : ''}
-          <a href="${data.link || 'https://ket-noi-tri-thuc.myshopify.com'}" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 6px;">
-            Mua sắm ngay
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  update_info: (data) => ({
-    subject: `📝 Cập nhật thông tin tài khoản`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #3498db; padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0;">📝 Cập nhật thông tin</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <p style="font-size: 16px; line-height: 1.6;">
-            Xin chào! Chúng tôi nhận thấy thông tin tài khoản của bạn chưa đầy đủ.
-          </p>
-          <p style="font-size: 16px; line-height: 1.6;">
-            Vui lòng cập nhật để nhận được trải nghiệm tốt nhất và các ưu đãi độc quyền!
-          </p>
-          <a href="https://ket-noi-tri-thuc.myshopify.com/account" 
-             style="display: inline-block; margin-top: 20px; padding: 12px 30px; background: #3498db; color: white; text-decoration: none; border-radius: 6px;">
-            Cập nhật ngay
-          </a>
-        </div>
-      </div>
-    `
-  }),
-  
-  maintenance: (data) => ({
-    subject: `🔧 Thông báo bảo trì hệ thống`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #95a5a6; padding: 30px; text-align: center; color: white;">
-          <h1 style="margin: 0;">🔧 Bảo trì hệ thống</h1>
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <p style="font-size: 16px; line-height: 1.6;">
-            ${data.message || 'Hệ thống sẽ được bảo trì để nâng cấp trải nghiệm cho bạn.'}
-          </p>
-          ${data.startTime ? `
-            <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
-              <strong>Thời gian:</strong> ${data.startTime} - ${data.endTime || 'Hoàn tất'}
-            </div>
-          ` : ''}
-          <p style="font-size: 14px; color: #666;">
-            Cảm ơn bạn đã thông cảm!
-          </p>
-        </div>
-      </div>
-    `
-  })
-};
-
-// ===== SEND EMAIL =====
-async function sendEmail(customerEmail, subject, htmlContent) {
-  try {
-    console.log(`📧 [EMAIL] To: ${customerEmail}`);
-    console.log(`📧 [EMAIL] Subject: ${subject}`);
-    console.log(`📧 [EMAIL] HTML length: ${htmlContent.length} chars`);
-    
-    // TODO: Integrate với email service
-    // Option 1: SendGrid
-    // Option 2: Mailgun  
-    // Option 3: Nodemailer + Gmail
-    
-    // Placeholder - sẽ implement sau
-    return { success: true };
-  } catch (error) {
-    console.error('❌ Email send error:', error);
-    return { success: false, error: error.message };
+// Cấu hình email transporter
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: true,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
   }
-}
+});
 
-// ===== GET CUSTOMER EMAIL =====
-async function getCustomerEmail(customerId) {
-  const query = `
-    query {
-      customer(id: "gid://shopify/Customer/${customerId}") {
-        email
-      }
-    }
-  `;
+// Helper: Lưu notification vào metafield
+async function saveNotification(customerId, notification) {
+  const customer = await shopify.customer.get(customerId);
+  const history = customer.metafields?.loyalty_notifications?.history?.value || { notifications: [] };
   
-  const response = await fetch(`https://${SHOPIFY_CONFIG.domain}/admin/api/${SHOPIFY_CONFIG.apiVersion}/graphql.json`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': SHOPIFY_CONFIG.token
-    },
-    body: JSON.stringify({ query })
+  history.notifications.unshift({
+    id: Date.now(),
+    type: notification.type,
+    title: notification.title,
+    message: notification.message,
+    timestamp: new Date().toISOString(),
+    read: false
   });
   
-  const data = await response.json();
-  
-  if (data.errors) {
-    throw new Error(data.errors[0].message);
+  // Giữ tối đa 50 thông báo
+  if (history.notifications.length > 50) {
+    history.notifications = history.notifications.slice(0, 50);
   }
   
-  return data.data.customer;
+  const unreadCount = history.notifications.filter(n => !n.read).length;
+  
+  await shopify.metafield.create({
+    key: 'history',
+    value: JSON.stringify(history),
+    type: 'json',
+    namespace: 'loyalty_notifications',
+    owner_id: customerId,
+    owner_resource: 'customer'
+  });
+  
+  await shopify.metafield.create({
+    key: 'unread_count',
+    value: unreadCount.toString(),
+    type: 'number_integer',
+    namespace: 'loyalty_notifications',
+    owner_id: customerId,
+    owner_resource: 'customer'
+  });
 }
 
-// ===== SEND NOTIFICATION - UPDATED WITH EMAIL =====
-async function sendNotification(customerId, { type, title, message, link = null, data = {} }) {
+// Helper: Gửi email
+async function sendEmail(to, subject, html) {
   try {
-    // 1. Get customer metafields
-    const customer = await getCustomerMetafields(customerId);
+    await transporter.sendMail({
+      from: `"${process.env.STORE_NAME}" <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      html
+    });
+    return true;
+  } catch (error) {
+    console.error('Email error:', error);
+    return false;
+  }
+}
+
+// 1. THÔNG BÁO HÀNG SẮP HẾT / CÓ HÀNG TRỞ LẠI
+router.post('/inventory-alert', async (req, res) => {
+  try {
+    const { productId, variantId, type } = req.body; // type: 'low_stock' hoặc 'back_in_stock'
     
-    // 2. Get history and preferences
-    let history = { notifications: [] };
-    let preferences = { channels: { in_app: true, email: true }, types: {} };
+    const product = await shopify.product.get(productId);
+    const variant = product.variants.find(v => v.id == variantId);
     
-    if (customer.metafields?.loyalty_notifications?.history) {
-      history = JSON.parse(customer.metafields.loyalty_notifications.history);
+    // Lấy danh sách khách hàng đã đăng ký nhận thông báo sản phẩm này
+    const customers = await getCustomersWatchingProduct(productId);
+    
+    for (const customer of customers) {
+      const notification = {
+        type,
+        title: type === 'back_in_stock' ? 'Sản phẩm đã có hàng trở lại!' : 'Sản phẩm sắp hết hàng',
+        message: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''} ${type === 'back_in_stock' ? 'đã có hàng trở lại' : 'chỉ còn ít hàng'}.`
+      };
+      
+      await saveNotification(customer.id, notification);
+      
+      const emailHtml = `
+        <h2>${notification.title}</h2>
+        <p>${notification.message}</p>
+        <a href="${process.env.STORE_URL}/products/${product.handle}" style="display:inline-block;padding:12px 24px;background:#000;color:#fff;text-decoration:none;margin-top:16px;">Xem sản phẩm</a>
+      `;
+      
+      await sendEmail(customer.email, notification.title, emailHtml);
     }
     
-    if (customer.metafields?.loyalty_notifications?.preferences) {
-      preferences = JSON.parse(customer.metafields.loyalty_notifications.preferences);
-    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. THÔNG BÁO YÊU CẦU CẬP NHẬT THÔNG TIN
+router.post('/request-update-info', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    const customer = await shopify.customer.get(customerId);
     
-    // 3. Check preferences
-    if (preferences.types[type] === false) {
-      console.log(`⏭️ Customer ${customerId} disabled ${type} notifications`);
-      return { success: false, message: 'User disabled this notification type' };
-    }
-    
-    // 4. Create notification
-    const newNotif = {
-      id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      type,
-      title,
-      message,
-      timestamp: new Date().toISOString(),
-      read: false,
-      link
+    const notification = {
+      type: 'update_info',
+      title: 'Vui lòng cập nhật thông tin',
+      message: 'Để nhận được ưu đãi tốt nhất, vui lòng hoàn thiện thông tin tài khoản của bạn.'
     };
     
-    // 5. Add to history
-    history.notifications.unshift(newNotif);
-    if (history.notifications.length > 50) {
-      history.notifications = history.notifications.slice(0, 50);
-    }
+    await saveNotification(customerId, notification);
     
-    // 6. Calculate unread count
-    const unreadCount = history.notifications.filter(n => !n.read).length;
+    const emailHtml = `
+      <h2>${notification.title}</h2>
+      <p>${notification.message}</p>
+      <a href="${process.env.STORE_URL}/account" style="display:inline-block;padding:12px 24px;background:#000;color:#fff;text-decoration:none;margin-top:16px;">Cập nhật ngay</a>
+    `;
     
-    // 7. Update metafields
-    await updateCustomerMetafields(customerId, {
-      'loyalty_notifications.history': JSON.stringify(history),
-      'loyalty_notifications.unread_count': unreadCount,
-      'loyalty_notifications.last_notification_sent': new Date().toISOString()
-    });
+    await sendEmail(customer.email, notification.title, emailHtml);
     
-    // 8. Send email if enabled
-    if (preferences.channels.email !== false && EMAIL_TEMPLATES[type]) {
-      const template = EMAIL_TEMPLATES[type]({ ...data, title, message, link });
-      
-      // Get customer email
-      const customerData = await getCustomerEmail(customerId);
-      if (customerData && customerData.email) {
-        await sendEmail(customerData.email, template.subject, template.html);
-      }
-    }
-    
-    console.log(`✅ Notification sent: "${title}" to customer ${customerId}`);
-    return { success: true, notification: newNotif };
-    
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ Notification error:', error);
-    return { success: false, error: error.message };
+    console.error(error);
+    res.status(500).json({ error: error.message });
   }
-}
+});
 
-// ===== MARK ALL READ =====
-async function markAllRead(customerId) {
+// 3. THÔNG BÁO BẢO TRÌ VÀ CẬP NHẬT WEB
+router.post('/maintenance-notice', async (req, res) => {
   try {
-    const customer = await getCustomerMetafields(customerId);
+    const { title, message, scheduledTime } = req.body;
     
-    if (!customer.metafields?.loyalty_notifications?.history) {
-      return { success: true, message: 'No notifications' };
+    // Lấy tất cả khách hàng
+    const customers = await shopify.customer.list({ limit: 250 });
+    
+    const notification = {
+      type: 'maintenance',
+      title: title || 'Thông báo bảo trì hệ thống',
+      message: message || `Website sẽ tạm ngưng hoạt động vào ${scheduledTime} để bảo trì và nâng cấp.`
+    };
+    
+    for (const customer of customers) {
+      await saveNotification(customer.id, notification);
+      
+      const emailHtml = `
+        <h2>${notification.title}</h2>
+        <p>${notification.message}</p>
+        <p style="color:#666;font-size:14px;margin-top:16px;">Cảm ơn bạn đã thông cảm!</p>
+      `;
+      
+      await sendEmail(customer.email, notification.title, emailHtml);
     }
     
-    const history = JSON.parse(customer.metafields.loyalty_notifications.history);
+    res.json({ success: true, sent: customers.length });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 4. ĐÁNH DẤU ĐÃ ĐỌC
+router.post('/mark-all-read', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    const customer = await shopify.customer.get(customerId);
+    const history = customer.metafields?.loyalty_notifications?.history?.value || { notifications: [] };
     
     history.notifications.forEach(n => n.read = true);
     
-    await updateCustomerMetafields(customerId, {
-      'loyalty_notifications.history': JSON.stringify(history),
-      'loyalty_notifications.unread_count': 0
+    await shopify.metafield.create({
+      key: 'history',
+      value: JSON.stringify(history),
+      type: 'json',
+      namespace: 'loyalty_notifications',
+      owner_id: customerId,
+      owner_resource: 'customer'
     });
     
-    console.log(`✅ Marked all notifications as read for customer ${customerId}`);
-    return { success: true };
-    
-  } catch (error) {
-    console.error('❌ Error marking all read:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-// ===== MARK AS READ =====
-async function markAsRead(customerId, notificationId) {
-  try {
-    const customer = await getCustomerMetafields(customerId);
-    
-    if (!customer.metafields?.loyalty_notifications?.history) {
-      return { success: false, message: 'No notifications' };
-    }
-    
-    const history = JSON.parse(customer.metafields.loyalty_notifications.history);
-    const notif = history.notifications.find(n => n.id === notificationId);
-    
-    if (!notif) {
-      return { success: false, message: 'Notification not found' };
-    }
-    
-    notif.read = true;
-    
-    const unreadCount = history.notifications.filter(n => !n.read).length;
-    
-    await updateCustomerMetafields(customerId, {
-      'loyalty_notifications.history': JSON.stringify(history),
-      'loyalty_notifications.unread_count': unreadCount
+    await shopify.metafield.create({
+      key: 'unread_count',
+      value: '0',
+      type: 'number_integer',
+      namespace: 'loyalty_notifications',
+      owner_id: customerId,
+      owner_resource: 'customer'
     });
     
-    return { success: true };
-    
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error marking as read:', error);
-    return { success: false, error: error.message };
+    console.error(error);
+    res.status(500).json({ error: error.message });
   }
-}
+});
 
-// ===== GET CUSTOMER METAFIELDS =====
-async function getCustomerMetafields(customerId) {
-  const query = `
-    query {
-      customer(id: "gid://shopify/Customer/${customerId}") {
-        id
-        email
-        metafields(first: 20) {
-          edges {
-            node {
-              namespace
-              key
-              value
-            }
-          }
-        }
-      }
-    }
-  `;
-  
-  const response = await fetch(`https://${SHOPIFY_CONFIG.domain}/admin/api/${SHOPIFY_CONFIG.apiVersion}/graphql.json`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': SHOPIFY_CONFIG.token
-    },
-    body: JSON.stringify({ query })
-  });
-  
-  const data = await response.json();
-  
-  if (data.errors) {
-    throw new Error(data.errors[0].message);
-  }
-  
-  const customer = data.data.customer;
-  const metafields = {};
-  
-  customer.metafields.edges.forEach(({ node }) => {
-    if (!metafields[node.namespace]) {
-      metafields[node.namespace] = {};
-    }
-    metafields[node.namespace][node.key] = node.value;
-  });
-  
-  return { id: customer.id, email: customer.email, metafields };
-}
-
-// ===== UPDATE CUSTOMER METAFIELDS =====
-async function updateCustomerMetafields(customerId, updates) {
-  const metafieldsArray = Object.entries(updates).map(([key, value]) => {
-    const [namespace, fieldKey] = key.split('.');
-    
-    let type = 'json';
-    if (typeof value === 'number') {
-      type = 'number_integer';
-    } else if (key.includes('last_notification_sent')) {
-      type = 'date_time';
-    }
-    
-    return {
-      ownerId: `gid://shopify/Customer/${customerId}`,
-      namespace,
-      key: fieldKey,
-      value,
-      type
-    };
-  });
-  
-  // Reuse from loyaltytasks.js
-  return await metafieldsSetPayload(metafieldsArray);
-}
-
-// ===== EXPORTS =====
-module.exports = {
-  sendNotification,
-  markAllRead,
-  markAsRead,
-  EMAIL_TEMPLATES
-};
+module.exports = router;
