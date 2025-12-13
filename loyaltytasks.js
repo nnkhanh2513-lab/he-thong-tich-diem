@@ -419,14 +419,17 @@ async function completeTask(customerId, taskId, metadata = {}) {
   });
 }
 
-// ===== REDEEM VOUCHER =====
+// ===== REDEEM VOUCHER ===== (THEO QUY ƯỚC CỦA BẠN)
 async function redeemVoucher(customerId, pointsToRedeem) {
   return await withCustomerLock(customerId, async () => {
     try {
-      if (pointsToRedeem < 300 || pointsToRedeem % 100 !== 0) {
+      // ✅ Validation: Chỉ cho phép 30, 300, hoặc 1500 điểm
+      const validAmounts = [30, 300, 1500];
+      
+      if (!validAmounts.includes(pointsToRedeem)) {
         return {
           success: false,
-          message: 'Điểm phải >= 300 và là bội số của 100'
+          message: 'Chỉ có thể đổi: 30 điểm (1,000₫), 300 điểm (10,000₫), hoặc 1500 điểm (50,000₫)'
         };
       }
 
@@ -477,10 +480,17 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         .filter(b => new Date(b.expiresAt) > now)
         .reduce((s, b) => s + b.points, 0);
 
+      // ✅ Tính discount theo bảng quy ước
+      const discountMap = {
+        30: 1000,
+        300: 10000,
+        1500: 50000
+      };
+      const discountAmount = discountMap[pointsToRedeem];
+
       // Create voucher
       const uniqueId = crypto.randomBytes(4).toString('hex').toUpperCase();
       const voucherCode = `BOOK${pointsToRedeem}_${uniqueId}`;
-      const discountAmount = Math.floor((pointsToRedeem / 300) * 10000);
 
       let discountId = null;
 
@@ -602,6 +612,14 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         }
         throw error;
       }
+
+    } catch (error) {
+      console.error(`❌ redeemVoucher failed [customer=${customerId}]:`, error);
+      console.error('Stack:', error.stack);
+      throw error;
+    }
+  });
+}
 
     } catch (error) {
       console.error(`❌ redeemVoucher failed [customer=${customerId}]:`, error);
