@@ -1,16 +1,15 @@
-// loyaltytasks.js - COMPLETE FIXED VERSION
+// loyaltytasks.js - FIXED GraphQL Syntax Error
 const fetch = require('node-fetch');
 const crypto = require('crypto');
 require('dotenv').config();
 
-// ===== CONFIG (từ environment variables) =====
+// ===== CONFIG =====
 const SHOPIFY_CONFIG = {
   domain: process.env.SHOPIFY_DOMAIN || 'ket-noi-tri-thuc.myshopify.com',
   token: process.env.SHOPIFY_TOKEN,
   apiVersion: '2024-10'
 };
 
-// Validate config
 if (!SHOPIFY_CONFIG.token) {
   console.error('❌ CRITICAL: SHOPIFY_TOKEN not set in .env');
   process.exit(1);
@@ -68,7 +67,7 @@ const TASKS = {
   }
 };
 
-// ===== REDIS SETUP (optional) =====
+// ===== REDIS SETUP =====
 let redis = null;
 const inMemoryCache = new Map();
 
@@ -88,7 +87,6 @@ async function withCustomerLock(customerId, fn, timeoutMs = 5000) {
   const start = Date.now();
 
   if (redis) {
-    // Redis-based distributed lock
     while (true) {
       const acquired = await redis.set(key, lockValue, 'PX', timeoutMs, 'NX');
       if (acquired === 'OK') break;
@@ -112,7 +110,6 @@ async function withCustomerLock(customerId, fn, timeoutMs = 5000) {
       await redis.eval(script, 1, key, lockValue);
     }
   } else {
-    // Fallback: in-memory lock
     while (inMemoryCache.get(key)) {
       if (Date.now() - start > timeoutMs) {
         throw new Error(`Lock timeout for customer ${customerId}`);
@@ -153,9 +150,14 @@ function extractCustomerId(input) {
   throw new Error('Invalid customer ID format: ' + str);
 }
 
-// ===== SHOPIFY GRAPHQL API =====
-async function shopifyGraphQL(query) {
+// ===== SHOPIFY GRAPHQL API - FIXED WITH VARIABLES =====
+async function shopifyGraphQL(query, variables = null) {
   const url = `https://${SHOPIFY_CONFIG.domain}/admin/api/${SHOPIFY_CONFIG.apiVersion}/graphql.json`;
+
+  const body = { query };
+  if (variables) {
+    body.variables = variables;
+  }
 
   const response = await fetch(url, {
     method: 'POST',
@@ -163,7 +165,7 @@ async function shopifyGraphQL(query) {
       'X-Shopify-Access-Token': SHOPIFY_CONFIG.token,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ query })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {
@@ -173,16 +175,16 @@ async function shopifyGraphQL(query) {
   const result = await response.json();
 
   if (result.errors && result.errors.length) {
+    console.error('❌ GraphQL Errors:', JSON.stringify(result.errors, null, 2));
     throw new Error('GraphQL errors: ' + JSON.stringify(result.errors));
   }
 
   return result.data;
 }
 
-// ===== GET CUSTOMER METAFIELDS (GraphQL - optimized) =====
+// ===== GET CUSTOMER METAFIELDS =====
 async function getCustomerMetafields(customerId) {
-  // ✅ NORMALIZE customer ID trước khi query
-  const normalizedId = extractCustomerId(customerId); // Luôn trả về số thuần
+  const normalizedId = extractCustomerId(customerId);
   
   const query = `
     query {
@@ -232,31 +234,27 @@ async function getCustomerMetafields(customerId) {
   };
 }
 
-
-// ===== METAFIELDS SET (batch mutation) =====
+// ===== METAFIELDS SET - FIXED WITH VARIABLES =====
 async function metafieldsSetPayload(metafieldsArray) {
-  const fields = metafieldsArray.map(m => {
-    let valueStr;
+  // ✅ Chuẩn bị metafields với proper formatting
+  const metafields = metafieldsArray.map(m => {
+    // Convert value to string
+    const valueStr = typeof m.value === 'string' 
+      ? m.value 
+      : JSON.stringify(m.value);
     
-    if (m.type === 'number_integer') {
-      // ✅ Number cũng phải stringify!
-      valueStr = `"${m.value}"`;
-    } else {
-      valueStr = JSON.stringify(m.value);
-    }
-    
-    return `{
-      ownerId: "${m.ownerId}"
-      namespace: "${m.namespace}"
-      key: "${m.key}"
-      value: ${valueStr}
-      type: "${m.type || 'json'}"
-    }`;
-  }).join('\n');
+    return {
+      ownerId: m.ownerId,
+      namespace: m.namespace,
+      key: m.key,
+      value: valueStr,
+      type: m.type || 'json'
+    };
+  });
 
   const mutation = `
-    mutation {
-      metafieldsSet(metafields: [${fields}]) {
+    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
         metafields {
           id
           key
@@ -270,22 +268,26 @@ async function metafieldsSetPayload(metafieldsArray) {
     }
   `;
 
-  const data = await shopifyGraphQL(mutation);
+  const variables = { metafields };
+
+  console.log('🔍 Metafields mutation variables:', JSON.stringify(variables, null, 2));
+
+  const data = await shopifyGraphQL(mutation, variables);
   const res = data.metafieldsSet;
 
   if (res.userErrors && res.userErrors.length) {
+    console.error('❌ Metafield userErrors:', JSON.stringify(res.userErrors, null, 2));
     throw new Error('metafieldsSet userErrors: ' + JSON.stringify(res.userErrors));
   }
 
+  console.log('✅ Metafields updated:', res.metafields.length);
   return res.metafields;
 }
 
-
-// ===== GET CUSTOMER POINTS (with cache) =====
+// ===== GET CUSTOMER POINTS =====
 async function getCustomerPoints(customerId) {
   const cacheKey = `points:${customerId}`;
   
-  // Check cache
   if (redis) {
     const cached = await redis.get(cacheKey);
     if (cached) return parseInt(cached);
@@ -299,7 +301,6 @@ async function getCustomerPoints(customerId) {
     .filter(b => new Date(b.expiresAt) > now)
     .reduce((sum, b) => sum + b.points, 0);
 
-  // Update cache (5 min TTL)
   if (redis) {
     await redis.set(cacheKey, totalPoints, 'EX', 300);
   }
@@ -312,7 +313,6 @@ async function getCompletedTasks(customerId) {
   const metafields = await getCustomerMetafields(customerId);
   let tasks = safeParseJSON(metafields.completed_tasks?.value, {});
 
-  // Fix if array (legacy data)
   if (Array.isArray(tasks)) {
     console.warn(`⚠️ completed_tasks is array for customer ${customerId}, converting to object`);
     tasks = {};
@@ -321,7 +321,7 @@ async function getCompletedTasks(customerId) {
   return tasks;
 }
 
-// ===== COMPLETE TASK (ATOMIC) =====
+// ===== COMPLETE TASK =====
 async function completeTask(customerId, taskId, metadata = {}) {
   return await withCustomerLock(customerId, async () => {
     try {
@@ -363,7 +363,7 @@ async function completeTask(customerId, taskId, metadata = {}) {
         source: `task_${taskId}`
       });
 
-      // Cleanup expired batches + calculate total
+      // Cleanup expired batches
       pointsBatches = pointsBatches.filter(b => new Date(b.expiresAt) > now);
       const totalPoints = pointsBatches.reduce((sum, b) => sum + b.points, 0);
 
@@ -377,7 +377,7 @@ async function completeTask(customerId, taskId, metadata = {}) {
       });
       if (history.length > 100) history.length = 100;
 
-          // ✅ ATOMIC BATCH UPDATE
+      // ✅ ATOMIC BATCH UPDATE
       const ownerGid = metafields.ownerId || `gid://shopify/Customer/${customerId}`;
       await metafieldsSetPayload([
         { ownerId: ownerGid, namespace: 'loyalty', key: 'completed_tasks', value: completedTasks, type: 'json' },
@@ -392,7 +392,7 @@ async function completeTask(customerId, taskId, metadata = {}) {
 
       console.log(`✅ [${customerId}] ${task.name}: +${points} → ${totalPoints}`);
  
-      // ========== GỬI THÔNG BÁO ==========
+      // Send notification
       const { sendNotification } = require('./notifications');
       await sendNotification(customerId, {
         type: 'points_earned',
@@ -400,29 +400,29 @@ async function completeTask(customerId, taskId, metadata = {}) {
         message: `Chúc mừng! Bạn đã hoàn thành nhiệm vụ "${task.name}"`,
         link: '/account'
       }).catch(err => console.error('Failed to send notification:', err));
-      // ====================================
   
       return {
         success: true,
         message: `Hoàn thành nhiệm vụ "${task.name}"! +${points} điểm`,
         points: totalPoints,
-        earnedPoints: points,
+        points_earned: points,
+        total_points: totalPoints,
         task: task.name,
         expiresIn: `${POINTS_EXPIRY_DAYS} ngày`
       };
 
     } catch (error) {
       console.error(`❌ completeTask failed [customer=${customerId}, task=${taskId}]:`, error);
+      console.error('Stack:', error.stack);
       throw error;
     }
   });
 }
 
-// ===== REDEEM VOUCHER (FIXED ORDER) =====
+// ===== REDEEM VOUCHER =====
 async function redeemVoucher(customerId, pointsToRedeem) {
   return await withCustomerLock(customerId, async () => {
     try {
-      // Validate input
       if (pointsToRedeem < 300 || pointsToRedeem % 100 !== 0) {
         return {
           success: false,
@@ -447,13 +447,12 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         };
       }
 
-      // ✅ STEP 1: Trừ điểm trước (FIFO)
+      // FIFO deduction
       let remaining = pointsToRedeem;
       const newBatches = [];
 
       for (const batch of pointsBatches) {
         if (new Date(batch.expiresAt) <= now) {
-          // Preserve expired batches
           newBatches.push(batch);
           continue;
         }
@@ -464,10 +463,8 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         }
 
         if (batch.points <= remaining) {
-          // Consume entire batch → don't push
           remaining -= batch.points;
         } else {
-          // Partial consumption
           newBatches.push({
             ...batch,
             points: batch.points - remaining
@@ -480,7 +477,7 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         .filter(b => new Date(b.expiresAt) > now)
         .reduce((s, b) => s + b.points, 0);
 
-      // ✅ STEP 2: Tạo voucher sau
+      // Create voucher
       const uniqueId = crypto.randomBytes(4).toString('hex').toUpperCase();
       const voucherCode = `BOOK${pointsToRedeem}_${uniqueId}`;
       const discountAmount = Math.floor((pointsToRedeem / 300) * 10000);
@@ -488,7 +485,6 @@ async function redeemVoucher(customerId, pointsToRedeem) {
       let discountId = null;
 
       try {
-        // Create discount using GraphQL
         const createDiscountMutation = `
           mutation {
             discountCodeBasicCreate(basicCodeDiscount: {
@@ -527,7 +523,7 @@ async function redeemVoucher(customerId, pointsToRedeem) {
 
         discountId = createResp.codeDiscountNode.id;
 
-        // ✅ STEP 3: Save voucher + update points
+        // Save voucher
         let vouchers = safeParseJSON(metafields.vouchers?.value, []);
         const newVoucher = {
           code: voucherCode,
@@ -551,7 +547,7 @@ async function redeemVoucher(customerId, pointsToRedeem) {
         });
         if (history.length > 100) history.length = 100;
 
-        // ✅ ATOMIC UPDATE - BỎ points metafield
+        // ATOMIC UPDATE
         const ownerGid = metafields.ownerId || `gid://shopify/Customer/${customerId}`;
         await metafieldsSetPayload([
           { ownerId: ownerGid, namespace: 'loyalty', key: 'points_batches', value: newBatches, type: 'json' },
@@ -566,7 +562,7 @@ async function redeemVoucher(customerId, pointsToRedeem) {
 
         console.log(`✅ Voucher created: ${voucherCode} | Remaining: ${newTotal} pts`);
 
-        // ========== GỬI THÔNG BÁO ==========
+        // Send notification
         const { sendNotification } = require('./notifications');
         await sendNotification(customerId, {
           type: 'voucher_created',
@@ -574,18 +570,22 @@ async function redeemVoucher(customerId, pointsToRedeem) {
           message: `Giảm ${discountAmount.toLocaleString('vi-VN')}₫ - Hết hạn sau 30 ngày. Kiểm tra email hoặc trang tài khoản để sử dụng.`,
           link: '/account'
         }).catch(err => console.error('Failed to send notification:', err));
-        // ====================================
 
         return {
           success: true,
           voucherCode,
+          voucher_code: voucherCode,
+          code: voucherCode,
           discountAmount,
+          discount_amount: discountAmount,
+          discount: discountAmount,
           remainingPoints: newTotal,
+          remaining_points: newTotal,
           message: `Đã tạo voucher ${voucherCode} giảm ${discountAmount.toLocaleString('vi-VN')}₫`
         };
 
       } catch (error) {
-        // ✅ ROLLBACK: Delete discount if metafield update failed
+        // Rollback
         if (discountId) {
           console.warn(`⚠️ Rolling back discount ${discountId}`);
           try {
@@ -605,11 +605,11 @@ async function redeemVoucher(customerId, pointsToRedeem) {
 
     } catch (error) {
       console.error(`❌ redeemVoucher failed [customer=${customerId}]:`, error);
+      console.error('Stack:', error.stack);
       throw error;
     }
   });
 }
-
 
 // ===== FIND CUSTOMER BY EMAIL =====
 async function findCustomerByEmail(email) {
@@ -716,13 +716,12 @@ const API = {
   }
 };
 
-// ===== TRACKING API (for webhook server) - COMPLETE VERSION =====
+// ===== TRACKING API =====
 async function trackLoyaltyTask(req, res) {
   const { customer_id, customer_email, task_type, metadata = {}, duration_seconds, pages_visited, bookCount, result: gameResult, points } = req.body;
 
   console.log('📊 Tracking request:', { customer_id, customer_email, task_type, body: req.body });
 
-  // Validate
   if (!customer_id && !customer_email) {
     return res.status(400).json({
       success: false,
@@ -740,14 +739,12 @@ async function trackLoyaltyTask(req, res) {
   try {
     let customerId = customer_id;
 
-    // Find customer by email if needed
     if (!customerId && customer_email) {
       customerId = await findCustomerByEmail(customer_email);
     }
 
     console.log(`✅ Customer ID: ${customerId}`);
 
-    // Map task_type to function
     let result;
 
     switch(task_type) {
@@ -756,26 +753,22 @@ async function trackLoyaltyTask(req, res) {
         break;
 
       case 'browse':
-        // ✅ FIX: Đọc duration_seconds từ body
         const seconds = duration_seconds || metadata.duration_seconds || 120;
         const minutes = Math.floor(seconds / 60);
         result = await API.trackBrowseTime(customerId, minutes);
         break;
 
       case 'read':
-        // ✅ FIX: Đọc pages_visited từ body
         const pages = pages_visited || metadata.pages_visited || TASKS.READ_PAGES.requiredPages;
         result = await API.trackReadPages(customerId, pages);
         break;
 
       case 'collect':
-        // ✅ FIX: Đọc bookCount từ body
         const books = bookCount || metadata.bookCount || TASKS.COLLECT_BOOKS.requiredBooks;
         result = await API.trackCollectBooks(customerId, books);
         break;
 
       case 'game':
-        // ✅ FIX: Đọc result từ body
         const score = gameResult || metadata.result || 100;
         result = await API.playGame(customerId, score);
         break;
@@ -792,7 +785,6 @@ async function trackLoyaltyTask(req, res) {
         break;
 
       case 'redeem':
-        // ✅ FIX: Đọc points từ body
         const pointsToRedeem = points || metadata.points;
         if (!pointsToRedeem) {
           return res.status(400).json({
@@ -812,22 +804,26 @@ async function trackLoyaltyTask(req, res) {
 
     console.log('📤 Result:', result);
 
-    // Return result
     if (result.success) {
       if (task_type === 'redeem') {
         res.json({
           success: true,
           voucherCode: result.voucherCode,
+          voucher_code: result.voucherCode,
+          code: result.voucherCode,
           discountAmount: result.discountAmount,
+          discount_amount: result.discountAmount,
+          discount: result.discountAmount,
           remainingPoints: result.remainingPoints,
+          remaining_points: result.remainingPoints,
           message: result.message
         });
       } else {
         res.json({
           success: true,
           task: task_type,
-          points_earned: result.earnedPoints,
-          total_points: result.points,
+          points_earned: result.points_earned,
+          total_points: result.total_points || result.points,
           message: result.message,
           expiresIn: result.expiresIn
         });
@@ -842,6 +838,7 @@ async function trackLoyaltyTask(req, res) {
 
   } catch (error) {
     console.error('❌ Track loyalty error:', error);
+    console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Lỗi server: ' + error.message
@@ -849,13 +846,13 @@ async function trackLoyaltyTask(req, res) {
   }
 }
 
-
-// ===== HELPER: Clear cache =====
+// ===== HELPER =====
 function clearCache(customerId) {
   if (redis) {
     redis.del(`points:${customerId}`);
   }
 }
+
 
 // ===== HELPER: Extract customer ID =====
 function extractCustomerId(input) {
@@ -879,13 +876,13 @@ module.exports = {
   // API wrapper
   API,
   clearCache,
+  
   // Tracking endpoint
   trackLoyaltyTask,
   
   // Helpers
   findCustomerByEmail,
-    extractCustomerId, // ✅ THÊM EXPORT
-
+  extractCustomerId,
   
   // Constants
   TASKS,
