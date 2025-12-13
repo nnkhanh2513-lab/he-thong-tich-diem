@@ -619,7 +619,6 @@ async function redeemVoucher(customerId, pointsToRedeem) {
       throw error;
     }
   });
-}
 
     } catch (error) {
       console.error(`❌ redeemVoucher failed [customer=${customerId}]:`, error);
