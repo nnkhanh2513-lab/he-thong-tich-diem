@@ -28,7 +28,6 @@ async function saveNotification(customerId, notification) {
     read: false
   });
   
-  // Giữ tối đa 50 thông báo
   if (history.notifications.length > 50) {
     history.notifications = history.notifications.slice(0, 50);
   }
@@ -73,31 +72,23 @@ async function sendEmail(to, subject, html) {
 // 1. THÔNG BÁO HÀNG SẮP HẾT / CÓ HÀNG TRỞ LẠI
 router.post('/inventory-alert', async (req, res) => {
   try {
-    const { productId, variantId, type } = req.body; // type: 'low_stock' hoặc 'back_in_stock'
+    const { customerId, productTitle, type } = req.body;
+    const customer = await shopify.customer.get(customerId);
     
-    const product = await shopify.product.get(productId);
-    const variant = product.variants.find(v => v.id == variantId);
+    const notification = {
+      type,
+      title: type === 'back_in_stock' ? 'Sản phẩm đã có hàng trở lại!' : 'Sản phẩm sắp hết hàng',
+      message: `${productTitle} ${type === 'back_in_stock' ? 'đã có hàng trở lại' : 'chỉ còn ít hàng'}.`
+    };
     
-    // Lấy danh sách khách hàng đã đăng ký nhận thông báo sản phẩm này
-    const customers = await getCustomersWatchingProduct(productId);
+    await saveNotification(customerId, notification);
     
-    for (const customer of customers) {
-      const notification = {
-        type,
-        title: type === 'back_in_stock' ? 'Sản phẩm đã có hàng trở lại!' : 'Sản phẩm sắp hết hàng',
-        message: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''} ${type === 'back_in_stock' ? 'đã có hàng trở lại' : 'chỉ còn ít hàng'}.`
-      };
-      
-      await saveNotification(customer.id, notification);
-      
-      const emailHtml = `
-        <h2>${notification.title}</h2>
-        <p>${notification.message}</p>
-        <a href="${process.env.STORE_URL}/products/${product.handle}" style="display:inline-block;padding:12px 24px;background:#000;color:#fff;text-decoration:none;margin-top:16px;">Xem sản phẩm</a>
-      `;
-      
-      await sendEmail(customer.email, notification.title, emailHtml);
-    }
+    const emailHtml = `
+      <h2>${notification.title}</h2>
+      <p>${notification.message}</p>
+    `;
+    
+    await sendEmail(customer.email, notification.title, emailHtml);
     
     res.json({ success: true });
   } catch (error) {
@@ -123,7 +114,6 @@ router.post('/request-update-info', async (req, res) => {
     const emailHtml = `
       <h2>${notification.title}</h2>
       <p>${notification.message}</p>
-      <a href="${process.env.STORE_URL}/account" style="display:inline-block;padding:12px 24px;background:#000;color:#fff;text-decoration:none;margin-top:16px;">Cập nhật ngay</a>
     `;
     
     await sendEmail(customer.email, notification.title, emailHtml);
@@ -138,30 +128,17 @@ router.post('/request-update-info', async (req, res) => {
 // 3. THÔNG BÁO BẢO TRÌ VÀ CẬP NHẬT WEB
 router.post('/maintenance-notice', async (req, res) => {
   try {
-    const { title, message, scheduledTime } = req.body;
-    
-    // Lấy tất cả khách hàng
-    const customers = await shopify.customer.list({ limit: 250 });
+    const { title, message } = req.body;
     
     const notification = {
       type: 'maintenance',
       title: title || 'Thông báo bảo trì hệ thống',
-      message: message || `Website sẽ tạm ngưng hoạt động vào ${scheduledTime} để bảo trì và nâng cấp.`
+      message: message || 'Website sẽ tạm ngưng hoạt động để bảo trì và nâng cấp.'
     };
     
-    for (const customer of customers) {
-      await saveNotification(customer.id, notification);
-      
-      const emailHtml = `
-        <h2>${notification.title}</h2>
-        <p>${notification.message}</p>
-        <p style="color:#666;font-size:14px;margin-top:16px;">Cảm ơn bạn đã thông cảm!</p>
-      `;
-      
-      await sendEmail(customer.email, notification.title, emailHtml);
-    }
+    // Gửi cho tất cả khách hàng (cần implement logic lấy danh sách)
     
-    res.json({ success: true, sent: customers.length });
+    res.json({ success: true });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
