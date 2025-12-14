@@ -143,12 +143,22 @@ function safeParseJSON(str, fallback) {
 
 function extractCustomerId(input) {
   const str = String(input);
+  
+  // Nếu là GID format
   if (str.startsWith('gid://shopify/Customer/')) {
     return str.split('/').pop();
   }
-  if (/^\d+$/.test(str)) return str;
+  
+  // ✅ Loại bỏ chữ O/o ở cuối (Shopify bug)
+  const cleaned = str.replace(/[Oo]$/, '');
+  
+  if (/^\d+$/.test(cleaned)) {
+    return cleaned;
+  }
+  
   throw new Error('Invalid customer ID format: ' + str);
 }
+
 
 // ===== SHOPIFY GRAPHQL API - FIXED WITH VARIABLES =====
 async function shopifyGraphQL(query, variables = null) {
