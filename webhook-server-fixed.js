@@ -434,6 +434,56 @@ app.post('/webhooks/orders/paid', async (req, res) => {
   }
 });
 
+// ========== WEBHOOK ORDER CREATION (BACKUP) ==========
+app.post('/webhooks/orders/create', async (req, res) => {
+  try {
+    const order = req.body;
+    const rawCustomerId = order.customer?.id;
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📦 WEBHOOK ORDER CREATE');
+    console.log('Order ID:', order.id);
+    console.log('Order Name:', order.name);
+    console.log('Financial Status:', order.financial_status);
+    console.log('Raw Customer ID:', rawCustomerId);
+    console.log('Type:', typeof rawCustomerId);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    if (!rawCustomerId) {
+      console.log('⚠️ Order from guest - skipping');
+      return res.status(200).send('OK');
+    }
+    
+    let customerId;
+    try {
+      customerId = extractCustomerId(rawCustomerId);
+      console.log('✅ Extracted Customer ID:', customerId);
+    } catch (error) {
+      console.error('❌ extractCustomerId failed:', error.message);
+      console.error('Raw value:', rawCustomerId);
+      return res.status(200).send('Invalid customer ID');
+    }
+    
+    console.log(`📦 Processing order: ${order.id} - Customer: ${customerId}`);
+    
+    const result = await completeTask(customerId, 'complete_order', { orderId: order.id });
+
+    clearCache(customerId);
+    
+    if (result.success) {
+      console.log(`✅ Cộng điểm thành công: +${result.points_earned}`);
+    } else {
+      console.log(`ℹ️ ${result.message}`);
+    }
+    
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('❌ Webhook error:', error);
+    console.error('Stack:', error.stack);
+    res.status(200).send('Error processed');
+  }
+});
+
 // ========== START SERVER ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
