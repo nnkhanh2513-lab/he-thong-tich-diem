@@ -141,6 +141,7 @@ function safeParseJSON(str, fallback) {
   }
 }
 
+// ===== HELPER: Extract customer ID =====
 function extractCustomerId(input) {
   const str = String(input);
   
@@ -149,15 +150,16 @@ function extractCustomerId(input) {
     return str.split('/').pop();
   }
   
-  // ✅ Loại bỏ chữ O/o ở cuối (Shopify bug)
-  const cleaned = str.replace(/[Oo]$/, '');
+  // ✅ SỬA: Loại bỏ ký tự không phải số (như chữ O ở cuối)
+  const cleaned = str.replace(/\D/g, '');
   
-  if (/^\d+$/.test(cleaned)) {
+  if (cleaned && /^\d+$/.test(cleaned)) {
     return cleaned;
   }
   
   throw new Error('Invalid customer ID format: ' + str);
 }
+
 
 
 // ===== SHOPIFY GRAPHQL API - FIXED WITH VARIABLES =====
