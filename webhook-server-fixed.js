@@ -384,27 +384,44 @@ app.post('/api/triggers/maintenance', async (req, res) => {
 });
 
 // ========== WEBHOOKS ==========
-
 app.post('/webhooks/orders/paid', async (req, res) => {
   try {
     const order = req.body;
     const rawCustomerId = order.customer?.id;
+    
+    // ✅ THÊM LOG CHI TIẾT
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📦 WEBHOOK ORDER PAID');
+    console.log('Order ID:', order.id);
+    console.log('Raw Customer ID:', rawCustomerId);
+    console.log('Type:', typeof rawCustomerId);
+    console.log('Customer object:', JSON.stringify(order.customer, null, 2));
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     if (!rawCustomerId) {
       console.log('⚠️ Order from guest - skipping');
       return res.status(200).send('OK');
     }
     
-    const customerId = extractCustomerId(rawCustomerId);
+    // ✅ THÊM TRY-CATCH CHO extractCustomerId
+    let customerId;
+    try {
+      customerId = extractCustomerId(rawCustomerId);
+      console.log('✅ Extracted Customer ID:', customerId);
+    } catch (error) {
+      console.error('❌ extractCustomerId failed:', error.message);
+      console.error('Raw value:', rawCustomerId);
+      return res.status(200).send('Invalid customer ID');
+    }
     
-    console.log(`📦 Order paid: ${order.id} - Customer: ${customerId}`);
+    console.log(`📦 Processing order: ${order.id} - Customer: ${customerId}`);
     
     const result = await completeTask(customerId, 'complete_order', { orderId: order.id });
 
     clearCache(rawCustomerId);
     
     if (result.success) {
-      console.log(`✅ Cộng điểm thành công`);
+      console.log(`✅ Cộng điểm thành công: +${result.points_earned}`);
     } else {
       console.log(`ℹ️ ${result.message}`);
     }
@@ -412,6 +429,7 @@ app.post('/webhooks/orders/paid', async (req, res) => {
     res.status(200).send('OK');
   } catch (error) {
     console.error('❌ Webhook error:', error);
+    console.error('Stack:', error.stack);
     res.status(200).send('Error processed');
   }
 });
