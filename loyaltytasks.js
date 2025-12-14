@@ -143,24 +143,30 @@ function safeParseJSON(str, fallback) {
 
 // ===== HELPER: Extract customer ID =====
 function extractCustomerId(input) {
+  console.log('🔍 extractCustomerId input:', input, 'type:', typeof input);
+  
   const str = String(input);
   
   // Nếu là GID format
   if (str.startsWith('gid://shopify/Customer/')) {
-    return str.split('/').pop();
+    const id = str.split('/').pop();
+    console.log('✅ Extracted from GID:', id);
+    return id;
   }
   
-  // ✅ SỬA: Loại bỏ ký tự không phải số (như chữ O ở cuối)
+  // Loại bỏ TẤT CẢ ký tự không phải số
   const cleaned = str.replace(/\D/g, '');
   
+  console.log('🔍 Cleaned:', cleaned);
+  
   if (cleaned && /^\d+$/.test(cleaned)) {
+    console.log('✅ Valid customer ID:', cleaned);
     return cleaned;
   }
   
+  console.error('❌ Invalid format - input:', input, 'cleaned:', cleaned);
   throw new Error('Invalid customer ID format: ' + str);
 }
-
-
 
 // ===== SHOPIFY GRAPHQL API - FIXED WITH VARIABLES =====
 async function shopifyGraphQL(query, variables = null) {
